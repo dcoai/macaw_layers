@@ -83,6 +83,7 @@ The kernel's reasons and their words:
 |---|---|
 | `:required` | is required |
 | `:unknown_key` | is not a key of this node |
+| `:key_spelling` | is a name spelled like a key of this document; it would read back as the key |
 | `{:type, type}` | must be *type*, for the types below; any other type is the document type's to word |
 | `{:enum, allowed}` | must be one of *allowed*, each shown with `inspect/1`, joined by `, ` |
 | `{:newer_schema, needs, this}` | needs schema v*needs*, this is v*this* |
@@ -91,7 +92,7 @@ The kernel's reasons and their words:
 | `{:unknown_tag, tag}` | *tag* is not a tag this document reads |
 | `{:retired_tag, tag, why}` | *tag* *why* |
 
-The types the kernel words in `{:type, type}`: `:string` (a string), `:name` (a name: a non-empty string), `:integer` (an integer), `:non_neg_integer` (a non-negative integer), `:pos_integer` (a positive integer), `:number` (a number), `:positive` (a positive number), `:boolean` (true or false), `:map` (a map), `:list` (a list), `{:enum, allowed}` (one of *allowed*), `{:list, t}` (a list of *t*), `{:map, t}` (a map from names to *t*), `{:node, kind}` (a *kind* node), and `{:one_of, types}` (each type's words joined by ` or `). A compound type whose part the kernel does not word is the document type's to word whole.
+The types the kernel words in `{:type, type}`: `:string` (a string), `:name` (a name: a non-empty string), `:integer` (an integer), `:non_neg_integer` (a non-negative integer), `:pos_integer` (a positive integer), `:number` (a number), `:positive` (a positive number), `:boolean` (true or false), `:map` (a map), `:list` (a list), `:term` (a value with a document form: no function, PID, reference, port, tuple or struct), `:time` (an ISO 8601 time in UTC), `{:enum, allowed}` (one of *allowed*), `{:list, t}` (a list of *t*), `{:map, t}` (a map from names to *t*), `{:node, kind}` (a *kind* node), and `{:one_of, types}` (each type's words joined by ` or `). A compound type whose part the kernel does not word is the document type's to word whole.
 
 ```test:faults-sort
 sort/1 orders faults by path, keys and indexes mixed, and keeps the given order of faults at one path; it is total over generated paths
@@ -219,16 +220,67 @@ unknown_keys/3 refuses each key not among the known ones at its own spelling und
 
 ## 6. Forms and tags {#kernel-forms}
 
-<!-- surfex: deferred #98: the forms and the tag table are built in their own work item -->
+**A document has three forms, and the conversions between them are exact inverses for valid values.**
+- The **value** is the document as Elixir holds it: atom keys where the type has a key, string names elsewhere, atoms, times.
+- The **map form** is JSON-ready: string keys, and a tag for every value JSON can't express.
+- The **JSON form** is the map form encoded.
 
-**A document has two forms: a map form and a JSON form, exact inverses for valid values.** `from_json(to_json(v)) == v`, and `to_map(from_map(m)) == m`. A document type implements the behavior `Macaw.Layers.Form`, which turns its value into the JSON-ready map and back. The kernel supplies the walk, the key tables and the tags.
+`Macaw.Layers.Form` converts between them: `to_map/2` and `from_map/2`, `to_json/2`, and `from_json/3`, which reads through every gate (§5) and then from the map form. For a valid value, `from_map(to_map(v)) == {:ok, v}`; for a map form `to_map/2` wrote, `to_map(from_map(m)) == {:ok, m}`.
 
-- **Keys are decoded against the type's tables.** A key the table has becomes the type's key; a key it lacks stays a string at its own spelling, for the validator to refuse (§5). No atom is made from a key.
-- **Values JSON can't express use one table of `$` tags.** A tag is a one-key object whose key starts with a single `$`, such as `{"$atom": "ok"}`. The table belongs to the document type; `Macaw.Layers.Tags` supplies:
-  - `tag/2`, a macro that refuses at compile time a literal tag the table does not list as live, so nothing is written that a reader would refuse;
+A document type implements the behavior `Macaw.Layers.Form`:
+- `tags/0`, its tag table;
+- `keys/0`, the keys it reads as atoms, and `atoms/0`, the atoms a `$atom` may spell, each a closed vocabulary (§2), so no atom is ever made from a document;
+- optionally, `encode_value/1` and `decode_value/2`, for values of its own (a struct, a tuple), written under its own live tags.
+
+**The kernel's terms:**
+
+| Value | Map form |
+|---|---|
+| `nil`, a boolean, a number, a string | as it is |
+| another atom | `{"$atom": "spelling"}`, read back through the type's `atoms/0`; a spelling it lacks is `{path, {:enum, allowed}}` |
+| a `DateTime` in `Etc/UTC` | `{"$time": "ISO 8601"}`; a payload that is not one is `{path, {:type, :time}}` |
+| a list | a list |
+| a map | an object, keyed as below |
+
+- **Keys are decoded against the type's tables.** A key the type's `keys/0` has becomes the atom; any other stays a string, at its own spelling, for the validator to refuse (§5). In the value, an atom key must be one of the type's keys (else `:unknown_key` when written), and a string key must not be spelled like one (`:key_spelling`), since it would read back as the key. A key that is neither an atom nor a string is `{:type, :name}`.
+- **Values JSON can't express use one table of `$` tags.** A tag is a one-key object whose key starts with a single `$`. Each type declares its table with `use Macaw.Layers.Tags`, listing its live, retired and renamed tags; the kernel's `$atom`, `$time` and `$version` are live in every table. `Macaw.Layers.Tags` supplies:
+  - `tag/2`, a macro in the table's module that refuses at compile time a literal tag the table does not list as live, so nothing is written that a reader would refuse;
   - `read/2`, which holds a parsed document to the table: a renamed tag is read under its new name, and an unknown or retired tag is refused at the path of its object, `{:unknown_tag, tag}` or `{:retired_tag, tag, why}`, never read as data;
-  - **escaping:** a data key that starts with `$` is written with one more `$` and read back with one fewer, so data may hold any key.
-- **Documents hold no functions, credentials or source configuration.** A function, a PID, a reference or a port has no form and is refused at its path by `{:type, :term}`. Credentials and source configuration are the host's; a document names sources and state by name only ([macaw_compose 01](https://gitlab.conet.yarina.org/dco-tek/macaw_compose/-/blob/main/spec/01-vocabulary.md#vocab-data)).
+  - **escaping:** a data key that starts with `$` is written with one more `$` and read back with one fewer, so data may hold any key, and `$$` never names a tag. The stamp `"$version"` at a document's root is not data and is not escaped.
+- A live tag the type writes is read by its `decode_value/2`; one it doesn't read is `{path, {:unknown_tag, tag}}`.
+- **Documents hold no functions, credentials or source configuration.** A function, a PID, a reference, a port, a tuple or a struct the type doesn't write has no form, and is refused at its path as `{:type, :term}`. Credentials and source configuration are the host's; a document names sources and state by name only ([macaw_compose 01](https://gitlab.conet.yarina.org/dco-tek/macaw_compose/-/blob/main/spec/01-vocabulary.md#vocab-data)).
+
+```test:forms-round-trip
+over generated valid values (type keys, string names, atoms of the type, UTC times, nesting, $-keys), from_map(to_map(v)) is {:ok, v} and from_json(to_json(v)) reads it back; to_map(from_map(m)) is {:ok, m} for the map forms written
+```
+
+```test:forms-terms
+each kernel term has the map form the table gives, an atom spelling outside atoms/0 is the enum fault, a $time that is not an ISO 8601 UTC time is the time fault, and no atom is made reading either
+```
+
+```test:forms-keys
+a type key reads as its atom and any other key stays a string; writing an atom key the type lacks is :unknown_key, a string spelled like a type key is :key_spelling, and an integer key is {:type, :name}, each at its path
+```
+
+```test:forms-no-functions
+a function, a PID, a reference, a tuple and a struct the type doesn't write are each {:type, :term} at their path, all reported
+```
+
+```test:forms-own-values
+a type's own value is written by encode_value/1 under its live tag and read back by decode_value/2, and a live tag decode_value/2 doesn't read is :unknown_tag
+```
+
+```test:tags-read
+a renamed tag reads as its new name, an unknown and a retired tag are refused at their object's path with their words, all of them ordered by path, and a $$ key is data
+```
+
+```test:tags-escape
+escape/1 and unescape/1 are inverses on every string key, a $ key gains one $, and the root stamp is written and read unescaped
+```
+
+```test:tags-compile
+tag/2 with a literal tag the table lacks is a compile error naming the table, a computed one is checked when called, and a table listing a tag that doesn't start with a single $ fails to compile
+```
 
 ## 7. The digest {#kernel-digest}
 

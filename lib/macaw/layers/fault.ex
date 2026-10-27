@@ -78,6 +78,9 @@ defmodule Macaw.Layers.Fault do
   defp kernel_words(:required), do: {:ok, "is required"}
   defp kernel_words(:unknown_key), do: {:ok, "is not a key of this node"}
 
+  defp kernel_words(:key_spelling),
+    do: {:ok, "is a name spelled like a key of this document; it would read back as the key"}
+
   defp kernel_words({:type, type}) do
     case type_words(type) do
       {:ok, words} -> {:ok, "must be #{words}"}
@@ -118,6 +121,11 @@ defmodule Macaw.Layers.Fault do
   defp type_words(:boolean), do: {:ok, "true or false"}
   defp type_words(:map), do: {:ok, "a map"}
   defp type_words(:list), do: {:ok, "a list"}
+
+  defp type_words(:term),
+    do: {:ok, "a value with a document form: no function, PID, reference, port, tuple or struct"}
+
+  defp type_words(:time), do: {:ok, "an ISO 8601 time in UTC"}
   defp type_words({:enum, allowed}) when is_list(allowed), do: {:ok, "one of #{list(allowed)}"}
   defp type_words({:list, t}), do: part(t, &"a list of #{&1}")
   defp type_words({:map, t}), do: part(t, &"a map from names to #{&1}")

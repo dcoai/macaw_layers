@@ -60,6 +60,10 @@ defmodule Macaw.Layers.FaultTest do
 
     assert words.(:required) == "is required"
     assert words.(:unknown_key) == "is not a key of this node"
+
+    assert words.(:key_spelling) ==
+             "is a name spelled like a key of this document; it would read back as the key"
+
     assert words.({:enum, [:a, :b]}) == "must be one of :a, :b"
     assert words.({:newer_schema, 4, 3}) == "needs schema v4, this is v3"
     assert words.({:limit, :bytes, 10, 12}) == "is 12 bytes; the limit bytes is 10"
@@ -79,7 +83,10 @@ defmodule Macaw.Layers.FaultTest do
           positive: "a positive number",
           boolean: "true or false",
           map: "a map",
-          list: "a list"
+          list: "a list",
+          term:
+            "a value with a document form: no function, PID, reference, port, tuple or struct",
+          time: "an ISO 8601 time in UTC"
         ] do
       assert words.({:type, type}) == "must be #{expected}"
     end
