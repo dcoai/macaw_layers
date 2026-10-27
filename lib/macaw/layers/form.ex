@@ -60,6 +60,18 @@ defmodule Macaw.Layers.Form do
 
   def to_map(_value, _type), do: {:error, [{[], {:type, :map}}]}
 
+  @doc """
+  One term's map form, for a type writing its own tag's payload (spec/01 §6): `{:ok, form}`,
+  or every value and key without one, by path from the term.
+  """
+  @spec encode_term(term(), module()) :: {:ok, term()} | {:error, [Fault.t(), ...]}
+  def encode_term(term, type) do
+    case encode(term, [], type, false) do
+      {form, []} -> {:ok, form}
+      {_form, faults} -> {:error, Fault.sort(faults)}
+    end
+  end
+
   @doc "The value's JSON form."
   @spec to_json(map(), module()) :: {:ok, binary()} | {:error, [Fault.t(), ...]}
   def to_json(value, type) do

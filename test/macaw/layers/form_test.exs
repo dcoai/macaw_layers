@@ -215,6 +215,20 @@ defmodule Macaw.Layers.FormTest do
   end
 
   @tag verifies: "forms-own-values"
+  test "encode_term writes one term's map form for a payload of the type's own, or its faults by path" do
+    assert Form.encode_term([:chart, @at, %{size: {:ratio, 16, 9}}], Card) ==
+             {:ok,
+              [
+                %{"$atom" => "chart"},
+                %{"$time" => DateTime.to_iso8601(@at)},
+                %{"size" => %{"$ratio" => [16, 9]}}
+              ]}
+
+    assert Form.encode_term("plain", Card) == {:ok, "plain"}
+    assert Form.encode_term(%{size: self()}, Card) == {:error, [{[:size], {:type, :term}}]}
+  end
+
+  @tag verifies: "forms-own-values"
   test "a type's own value goes through its live tag, and a live tag it doesn't read is refused" do
     assert Form.to_map(%{size: {:ratio, 16, 9}}, Card) ==
              {:ok, %{"size" => %{"$ratio" => [16, 9]}}}

@@ -6,11 +6,9 @@ Every configurable thing in Macaw is a document of the **fragment shape** (macaw
 - **names are strings, matched by spelling;** the library's own vocabularies (rules, kinds) stay atoms (spec/01 §1);
 - **the store and its ids are 03's;** this file says what an id is in a fragment and how a fragment is relocated.
 
-Each section's tests are written as **`planned-test:` blocks** until its work item is built (macaw_compose#129, #130): surfex judges every `test:` hint and can't defer one, so each becomes a `test:` hint, unchanged, in the change that implements it.
-
 | Module | What it is |
 |---|---|
-| `Macaw.Layers.Fragment` | the fragment-type behavior, and the operations over fragments of a type: kind, ids, `compose/3`, `stack/2`, `explain/2` (§1–§4, §6) |
+| `Macaw.Layers.Fragment` | the fragment-type behavior, and the operations over fragments of a type: kind, ids, `compose/3`, `stack/2`, `explain/2` (§1–§4, §6), and the forms of this file's terms (§9) |
 | `Macaw.Layers.Var` | a variable, binding and the variables still open (§5) |
 | `Macaw.Layers.Use` | a use site: `ref → local → mask → bind` (§7) |
 | `Macaw.Layers.Composite` | composites: flattening and decomposing (§8) |
@@ -110,8 +108,6 @@ stack is the left fold and associative wherever no layer gives a mergeable key a
 
 ## 4. Masks {#fragments-masks}
 
-<!-- surfex: deferred #130: variables, use sites, composites and reference resolution -->
-
 **A mask drops keys from a fragment before it is stacked**, so a lower layer's value shows through. It is the dual of a site's local node, which adds: without it the only way to let a lower key through is to copy the lower value up, which drifts, or to fork the fragment, which bloats the library. A mask is a list of **paths**, each a list of keys from the fragment's root, or `:all`:
 
 - a path removes the value at it, and an emptied node above it is kept as an empty map, so the key is genuinely absent when the cascade runs;
@@ -120,19 +116,19 @@ stack is the left fold and associative wherever no layer gives a mergeable key a
 
 `Macaw.Layers.Use.mask(fragment, mask)` applies one (§7). Because the key is absent by the time the cascade runs, `explain/2` attributes the value to the layer it now comes from, which is simply true.
 
-```planned-test:fragments-mask-paths
+```test:fragments-mask-paths
 a mask removes each path, keeps emptied nodes as empty maps and ignores a path that names nothing; all removes everything; a masked key shows the lower layer's value through the cascade
 ```
 
 ## 5. Variables {#fragments-vars}
 
-<!-- surfex: deferred #130: variables, use sites, composites and reference resolution -->
-
 `%Macaw.Layers.Var{name: name}`, built by `Var.new/1`, is a term allowed wherever a value can appear — a scalar, an element, a whole node — and it carries **only its name**, a string (an atom given in Elixir is read as its string). Its default, where it has one, is declared once by the document that uses it (visualize's `vars`), so two fragments cannot disagree about it. A variable is a struct, so it is a leaf of every walk (§1).
 
-### 5.1 Binding {#fragments-bind}
+```test:fragments-var-name
+new reads an atom as its string, and a variable stands as one value at a scalar, an element or a whole node, never merged or descended
+```
 
-<!-- surfex: deferred #130: variables, use sites, composites and reference resolution -->
+### 5.1 Binding {#fragments-bind}
 
 `Var.bind(fragment, bindings)` is a **pure substitution**: every `%Var{name: k}` in the fragment becomes the value `bindings` gives `k` (a map keyed by name, by either spelling), and a variable `bindings` does not name stays. A binding to a literal **sets** the variable; a binding to another `%Var{}` **renames** it. The result is a fragment with fewer, or differently named, variables. Binding runs at a use site before the cascade (§7), so a fragment placed at several sites can mean something different at each:
 
@@ -144,13 +140,11 @@ a mask removes each path, keeps emptied nodes as empty maps and ignores a path t
 
 A composite placed inside a larger composite is bound again, so bindings nest like function application. Binding is **single level**: the value a variable is bound to is not itself searched for variables, so a binding settles in one pass and a stored document cannot bind a variable to a chain that never ends. A variable a type's own syntax holds (a text template's hole, §5.2) is found by the type's `holes/3` and substituted by its `bind_holes/4`, which writes the value back in the type's syntax.
 
-```planned-test:fragments-bind-substitution
+```test:fragments-bind-substitution
 bind sets a variable to a literal, renames it to another variable, leaves an unnamed one, reads names by either spelling, does not search a bound value, and reaches a type's holes
 ```
 
 ### 5.2 The variables still open {#fragments-free-vars}
-
-<!-- surfex: deferred #130: variables, use sites, composites and reference resolution -->
 
 `Var.free(type, layers)` takes a fragment or the layers of a stack — stacked first by `stack/2` — and answers one entry per variable still in the result, ordered by name:
 
@@ -163,7 +157,7 @@ A fragment is a one-layer stack, its uses reported at layer `0`. The walk descen
 
 A variable and a literal override each other in a stack like any other value: a higher literal over a lower variable leaves one use fewer, and a higher variable over a lower literal one more. That is the whole of the interaction between variables and the cascade.
 
-```planned-test:fragments-free-uses
+```test:fragments-free-uses
 free lists each variable of the stacked result by name with every use by path and the layer that set it; a literal over a variable removes a use and a variable over a literal adds one; holes are reported at their text's key once
 ```
 
@@ -215,8 +209,6 @@ explain answers one entry per leaf of the stacked result with its value, the lay
 
 ## 7. Use sites {#fragments-use}
 
-<!-- surfex: deferred #130: variables, use sites, composites and reference resolution -->
-
 A layer in a composite and an entry in a stack at a site are the same thing: a fragment **used at a position**. The site is a struct, so it is a leaf of every walk but the two id walks (§6.2).
 
 ```elixir
@@ -246,13 +238,11 @@ A layer in a composite and an entry in a stack at a site are the same thing: a f
 | `Use.over(type, use, body)` | everything after the fetch, over a body in hand: `local`, `mask`, `bind` |
 | `Use.resolve(type, use, fetch)` | one site through `fetch`, a function from an id to `{:ok, fragment}` or `:error`: `{:ok, contribution}`, or `{:missing, id, contribution}` where the ref was not found, the contribution then the local alone, masked and bound |
 
-```planned-test:fragments-use-order
+```test:fragments-use-order
 a site resolves ref then local then mask then bind, mask and bind reaching the local too; mask all removes the site; a missing ref is its local alone and is reported; new issues the next id among siblings
 ```
 
 ## 8. Composites {#fragments-composites}
-
-<!-- surfex: deferred #130: variables, use sites, composites and reference resolution -->
 
 A **composite** is a fragment whose content is a list of use sites and its own variable declarations:
 
@@ -267,21 +257,25 @@ A **composite** is a fragment whose content is a list of use sites and its own v
 }}
 ```
 
-### 8.1 Stored as structure, flattened at deployment {#fragments-flatten}
+```test:fragments-composite-shape
+a composite is exactly one key, composite, holding a list of uses; anything else is not one and flattens to itself, and a composite of no sites flattens to the empty map
+```
 
-<!-- surfex: deferred #130: variables, use sites, composites and reference resolution -->
+### 8.1 Stored as structure, flattened at deployment {#fragments-flatten}
 
 **Save writes structure.** A store holds a composite's uses, never its flattened result, so a composite reopens as what was built — references intact, masks and bindings where they were left — and references keep their point: edit `{:style, 11}` and every composite using it follows. **Flatten is a deployment verb.** `Composite.flatten(type, composite, fetch)` resolves every site recursively — `ref → local → mask → bind` — through `fetch`, places each by its kind (§8.2), and stacks the placed layers in order: a whole document of the type, with no ids and no uses, which the type's reader validates.
 
-It answers `{:ok, document, %{missing: [{id, path}], keyless: [use_id]}}` — every reference that showed through, by the path of the site that named it, and every name-keyed site with no key — or `{:error, {:cycle, chain}}`. **Composites nest**: a site may reference a composite, which is flattened first, and then each of *its* sites placed. A composite that reaches itself through any chain of uses is refused at the site that closed the loop, `chain` the ids from the outer composite to it. The composite's own `vars` declarations are stacked into the result's variable declarations, the composite's under the document's.
+It answers `{:ok, document, %{missing: [{id, at}], keyless: [use_id]}}` — every reference that showed through, `at` the use id of the site that named it or, for a reference inside the document, its path there, and every name-keyed site with no key — or `{:error, {:cycle, chain}}`. **Composites nest**: a site may reference a composite, which is flattened first, and then each of *its* sites placed. A composite that reaches itself through any chain of uses is refused at the site that closed the loop, `chain` the ids from the outer composite to it. The composite's own `vars` declarations are stacked into the result's variable declarations, the composite's under the document's.
 
-**Resolution is one rule.** Once the sites are placed, every id left at a reference site *inside* the document is resolved through the same `fetch` by the type's `inline/3` callback, where the type has one (visualize inlines a style body and declares a referenced scale or source under a synthesized key, `"scale:4"`), so what leaves `flatten` carries no ids and nothing below it needs a store. An id the store no longer holds is a mask at its site and is reported in `missing`.
+**Resolution is one rule.** Once the sites are placed, every id left at a reference site *inside* the document is resolved through the same `fetch` by the type's `inline/2` callback, where the type has one (visualize inlines a style body and declares a referenced scale or source under a synthesized key, `"scale:4"`), so what leaves `flatten` carries no ids and nothing below it needs a store. An id the store no longer holds is a mask at its site and is reported in `missing`.
+
+```test:fragments-flatten-nested
+flatten resolves every site in order, places each by its kind under its key, stacks them, nests composites, reports missing references by path and keyless sites, and refuses a cycle at the site that closed it
+```
 
 ### 8.2 Placing a site by its kind {#fragments-place}
 
-<!-- surfex: deferred #130: variables, use sites, composites and reference resolution -->
-
-A site's contribution — its body after `ref → local → mask → bind` — is placed by the kind it derives to (§6.1), through the type's `place(kind, body, key)`: `{:ok, layer}`, the fragment that declares the body where a whole document keeps its kind, or `:keyless` for a name-keyed kind whose site has no key. A whole document (a host-seeded layer, an imported document) is its own layer. visualize's placements are its own (a style under `styles[key]`, a mark appended under `marks`, a frame cascading into `frames`, a composite under a key landing its frames as that key), and a Macaw type declares its own the same way.
+A site's contribution — its body after `ref → local → mask → bind` — is placed by the kind it derives to (§6.1), through the type's `place(kind, body, key)`: `{:ok, layer}`, the fragment that declares the body where a whole document keeps its kind, or `:keyless` for a name-keyed kind whose site has no key. A whole document (a host-seeded layer, an imported document) is its own layer. **Within a kind, the same operation:** a composite whose sites are all one wrapped kind and all `:keyless` — a stack of styles, none named — is a composer of that kind: it stacks its bodies as bodies, and its result is a fragment of that kind for the site that holds it to place under that site's key. A name-keyed kind is exactly one whose `place/3` answers `:keyless` without a key, so the rule needs nothing more from the type. visualize's placements are its own (a style under `styles[key]`, a mark appended under `marks`, a frame cascading into `frames`, a composite under a key landing its frames as that key), and a Macaw type declares its own the same way.
 
 `Composite.decompose(type, document)` is the inverse: a whole document as inline sites, one kind each, keyed where the document keyed them, through the type's optional `decompose/1`; `flatten` of the result is the document again.
 
@@ -292,17 +286,15 @@ A site's contribution — its body after `ref → local → mask → bind` — i
 | `Composite.place(type, contribution, key)` | one site's contribution as its layer, or `:keyless` |
 | `Composite.decompose(type, document)` | a document as sites; flattening them is the document |
 
-```planned-test:fragments-flatten-nested
-flatten resolves every site in order, places each by its kind under its key, stacks them, nests composites, reports missing references by path and keyless sites, and refuses a cycle at the site that closed it
+```test:fragments-place-kind
+place puts a contribution where its kind lands through the type, under the site's key; a name-keyed kind without a key is keyless; a contribution of no kind is its own layer
 ```
 
-```planned-test:fragments-decompose-inverse
+```test:fragments-decompose-inverse
 decompose gives one inline site per kind keyed as the document keyed it, and flattening those sites is the document again
 ```
 
 ## 9. The forms {#fragments-forms}
-
-<!-- surfex: deferred #130: variables, use sites, composites and reference resolution -->
 
 A fragment's map and JSON forms are its type's (spec/01 §6), with three terms of this file tagged in the kernel's way, each read without an atom made:
 
@@ -314,6 +306,6 @@ A fragment's map and JSON forms are its type's (spec/01 §6), with three terms o
 
 A type that stacks lists `$var`, `$id` and `$use` among its live tags (`Macaw.Layers.Tags`) and reads and writes them through `Fragment.encode_value/2` and `decode_value/3`, so `from_map(to_map(f))` is `{:ok, f}` for every fragment, a composite holding uses and ids included. A fragment is not validated as a whole document, since a fragment may be partial.
 
-```planned-test:fragments-forms-round-trip
+```test:fragments-forms-round-trip
 a fragment holding variables, ids and use sites round-trips through the map and JSON forms; an id of a kind the type does not hold is refused at its path and makes no atom
 ```

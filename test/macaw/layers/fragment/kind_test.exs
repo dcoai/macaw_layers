@@ -9,14 +9,14 @@ defmodule Macaw.Layers.Fragment.KindTest do
     @tag verifies: "fragments-type-callbacks"
     test "a type declares its root, keys, identities, kinds, wrappers and placement" do
       for {f, a} <- [root: 0, key: 2, identity: 2, kinds: 0, wrapper: 1, place: 3, merge: 3],
-          do: assert(function_exported?(Design, f, a))
+          do: assert(Fragment.callback?(Design, f, a))
 
       assert Design.root() == :design
       assert Design.key(:design, :marks) == %{merge: :concat, element: :mark}
       assert Design.key(:design, :unknown) == nil
       assert Design.identity(:axis, %{scale: "x", side: :bottom}) == {"x", :bottom}
       assert Design.wrapper(:style) == :style
-      assert Design.place(:style, %{}, nil) == :keyless
+      assert Design.place(:style, %{style: %{}}, nil) == :keyless
     end
 
     @tag verifies: "fragments-type-callbacks"

@@ -225,7 +225,7 @@ unknown_keys/3 refuses each key not among the known ones at its own spelling und
 - The **map form** is JSON-ready: string keys, and a tag for every value JSON can't express.
 - The **JSON form** is the map form encoded.
 
-`Macaw.Layers.Form` converts between them: `to_map/2` and `from_map/2`, `to_json/2`, and `from_json/3`, which reads through every gate (§5) and then from the map form. For a valid value, `from_map(to_map(v)) == {:ok, v}`; for a map form `to_map/2` wrote, `to_map(from_map(m)) == {:ok, m}`.
+`Macaw.Layers.Form` converts between them: `to_map/2` and `from_map/2`, `to_json/2`, and `from_json/3`, which reads through every gate (§5) and then from the map form. `encode_term/2` writes one term's map form, `{:ok, form}` or its faults by path, for a type writing a payload of its own tag whose keys are the tag's, not data (spec/02 §9). For a valid value, `from_map(to_map(v)) == {:ok, v}`; for a map form `to_map/2` wrote, `to_map(from_map(m)) == {:ok, m}`.
 
 A document type implements the behavior `Macaw.Layers.Form`:
 - `tags/0`, its tag table;
@@ -267,7 +267,7 @@ a function, a PID, a reference, a tuple and a struct the type doesn't write are 
 ```
 
 ```test:forms-own-values
-a type's own value is written by encode_value/1 under its live tag and read back by decode_value/2, and a live tag decode_value/2 doesn't read is :unknown_tag
+a type's own value is written by encode_value/1 under its live tag and read back by decode_value/2, and a live tag decode_value/2 doesn't read is :unknown_tag; encode_term/2 writes one term's map form for a payload of the type's own, or its faults by path
 ```
 
 ```test:tags-read

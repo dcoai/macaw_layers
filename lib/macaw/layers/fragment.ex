@@ -14,7 +14,9 @@ defmodule Macaw.Layers.Fragment do
   - `compose/3`, the union, reports a name two fragments declare differently (§3.1);
   - `stack/2`, the cascade, takes the higher layer's word (§3.2);
   - `explain/2` says which layer set every value of a stack (§6.3);
-  - `kind/2`, `refs/2` and `relocate/3` read a fragment's kind and ids (§6.1, §6.2).
+  - `kind/2`, `refs/2` and `relocate/3` read a fragment's kind and ids (§6.1, §6.2);
+  - `encode_value/2` and `decode_value/3` write and read variables, ids and use sites in
+    the type's forms (§9).
 
   **A struct is a leaf of every walk** (visualize D-92): a `%Macaw.Layers.Var{}` stands for
   a value rather than being one. Only `refs/2` and `relocate/3` read a struct's parts, a
@@ -24,7 +26,7 @@ defmodule Macaw.Layers.Fragment do
   """
 
   alias Macaw.Layers.Fragment.{Cascade, Compose}
-  alias Macaw.Layers.{Fault, Use}
+  alias Macaw.Layers.{Fault, Form, Names, Use, Var, Vocabulary}
 
   @typedoc "A node kind of a document type."
   @type kind :: atom()
@@ -126,6 +128,15 @@ defmodule Macaw.Layers.Fragment do
   """
   @spec explain(module(), [layer()]) :: [map()]
   def explain(type, layers) when is_list(layers), do: Cascade.explain(type, named(layers))
+
+  @doc false
+  # Whether the type defines an optional callback. `function_exported?/3` alone answers
+  # false for a module not loaded yet, which would skip the callback silently.
+  @spec callback?(module(), atom(), arity()) :: boolean()
+  def callback?(type, name, arity) do
+    Code.ensure_loaded!(type)
+    function_exported?(type, name, arity)
+  end
 
   @doc false
   # The layers as `{name, fragment}` pairs, a bare fragment named by its position.
@@ -296,4 +307,99 @@ defmodule Macaw.Layers.Fragment do
   end
 
   defp rewrite(leaf, _kinds, _table, missed), do: {leaf, missed}
+
+  # -- the forms ---------------------------------------------------------------------------
+
+  @doc """
+  The map form of this file's terms (spec/02 §9), for a type's `encode_value/1` to call:
+  a variable as `{"$var": name}`, an id as `{"$id": [kind, n]}`, a use site as
+  `{"$use": {…}}`, its parts in the type's own map form; `:default` for any other term.
+  """
+  @spec encode_value(module(), term()) :: {:ok, term()} | :default
+  def encode_value(_type, %Var{name: name}), do: {:ok, %{"$var" => name}}
+
+  def encode_value(type, {kind, n}) when is_atom(kind) and is_integer(n) and n > 0 do
+    if kind in type.kinds(), do: {:ok, %{"$id" => [Atom.to_string(kind), n]}}, else: :default
+  end
+
+  def encode_value(type, %Use{id: {:use, n}} = use) do
+    parts = [
+      {"ref", use.ref},
+      {"mask", if(use.mask == :all, do: "all", else: use.mask)},
+      {"vars", use.vars},
+      {"local", use.local},
+      {"key", use.key},
+      {"origin", use.origin}
+    ]
+
+    # The payload's keys are the tag's own, so each part is written as a term; a part with
+    # no form leaves the site to the kernel, which refuses it at its path.
+    parts
+    |> Enum.reduce_while(%{"id" => n}, fn {k, v}, payload ->
+      case Form.encode_term(v, type) do
+        {:ok, form} -> {:cont, Map.put(payload, k, form)}
+        {:error, _faults} -> {:halt, :default}
+      end
+    end)
+    |> case do
+      :default -> :default
+      payload -> {:ok, %{"$use" => payload}}
+    end
+  end
+
+  def encode_value(_type, _term), do: :default
+
+  @doc """
+  The value of one of this file's tags, its payload already read (spec/02 §9), for a
+  type's `decode_value/2` to call: `{:ok, value}`, or `:default` for a tag or payload it
+  does not read, which the reader refuses at its path. An id's kind is matched against the
+  type's kinds by its string, so no atom is made from a document.
+  """
+  @spec decode_value(module(), String.t(), term()) :: {:ok, term()} | :default
+  def decode_value(_type, "$var", name) when is_binary(name) and name != "",
+    do: {:ok, Var.new(name)}
+
+  def decode_value(type, "$id", [kind, n]) when is_binary(kind) and is_integer(n) and n > 0 do
+    case Vocabulary.fetch(Vocabulary.table(type.kinds()), kind) do
+      {:ok, kind} -> {:ok, {kind, n}}
+      :error -> :default
+    end
+  end
+
+  def decode_value(_type, "$use", %{} = payload) do
+    with {:ok, n} when is_integer(n) and n > 0 <- part(payload, "id") do
+      {:ok,
+       %Use{
+         id: {:use, n},
+         ref: value(payload, "ref", nil),
+         mask: mask(value(payload, "mask", [])),
+         vars: value(payload, "vars", %{}),
+         local: value(payload, "local", %{}),
+         key: value(payload, "key", nil),
+         origin: value(payload, "origin", nil)
+       }}
+    else
+      _ -> :default
+    end
+  end
+
+  def decode_value(_type, _tag, _payload), do: :default
+
+  defp part(payload, key) do
+    case Names.key(payload, key) do
+      {:ok, found} -> {:ok, Map.fetch!(payload, found)}
+      :error -> :error
+    end
+  end
+
+  defp value(payload, key, default) do
+    case part(payload, key) do
+      {:ok, value} -> value
+      :error -> default
+    end
+  end
+
+  defp mask("all"), do: :all
+  defp mask(:all), do: :all
+  defp mask(paths), do: paths
 end
