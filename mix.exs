@@ -1,0 +1,29 @@
+defmodule Macaw.Layers.MixProject do
+  use Mix.Project
+
+  @version "0.1.0"
+
+  def project do
+    [
+      app: :macaw_layers,
+      version: @version,
+      elixir: "~> 1.18",
+      start_permanent: Mix.env() == :prod,
+      deps: deps(),
+      description:
+        "Macaw's document layer: the document kernel, fragments and stacking, stores and themes.",
+      package: [licenses: ["MIT"]],
+      docs: [main: "readme", extras: ["README.md"]]
+    ]
+  end
+
+  def application, do: [extra_applications: [:logger]]
+
+  defp deps do
+    [
+      {:stream_data, "~> 1.1", only: :test},
+      # Spec, tests and code kept aligned (macaw_compose spec/00 §4.1); dev/test only.
+      {:surfex, "~> 0.10.0", only: [:dev, :test], runtime: false}
+    ]
+  end
+end
