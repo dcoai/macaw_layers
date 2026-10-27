@@ -1,7 +1,5 @@
 # 04 — Themes {#themes}
 
-<!-- surfex: deferred #134: the theme document -->
-
 **One theme system styles every surface, the site included** (decided, owner, 2026-10-25). It is visualize's theme: palettes, named whole styles and **roles** (good, warning, bad, info, neutral), with the states (hover, focused, selected, active, disabled, muted, emphasis, breakpoint) and the furniture. macaw_server's brand tokens become a theme, and metresis maps its UI framework's roles from it. This file is visualize's color and theme (spec/08 §1, §7; spec/14 §2.5, §9.3; D-55, D-122, D-123, D-135, D-139, D-142, D-171–D-175, D-184, D-225, D-233), with what draws a chart left in visualize (macaw_compose#94; R11 of `design/visualize-alignment.md`):
 
 - **the CSS names are Macaw's:** `--mw-<name>` properties under `.mw-theme-<name>`, which adopters emit too, so a visualize chart standalone and on a page reads the same properties;
@@ -14,8 +12,9 @@ Each section's tests are written as **`planned-test:` blocks** until its work it
 | Module | What it is |
 |---|---|
 | `Macaw.Layers.Color` | colors: the struct, parsing, conversions, manipulation, interpolation, OKLab and OKLCH, contrast, typed colors and their resolution (§1) |
-| `Macaw.Layers.Color.Vision` | color-vision simulation (§1.8) |
+| `Macaw.Layers.Color.Vision` | color-vision simulation (§1.5) |
 | `Macaw.Layers.Theme` | the theme: slots, the color table, ramps and roles, the style palette, contracts, resolution, the ink, the built-ins, extensions, the profile (§2–§4) |
+| `Macaw.Layers.Theme.Extension` | the behavior an adopter's extension implements (§3.4) |
 | `Macaw.Layers.Theme.Document` | a theme as a document of its own (§5) |
 | `Macaw.Layers.Theme.Sheet` | a theme compiled to a stylesheet (§6) |
 
@@ -80,8 +79,6 @@ lab of to_lab is the color and a gray has a and b zero; OKLab of the sRGB primar
 
 ### 1.3 Typed colors and their transforms {#themes-color-typed}
 
-<!-- surfex: deferred #134: typed colors are resolved against the theme -->
-
 A document names a color as a **typed value**, never a bare atom; the values are plain data, built by functions that check their arguments and compile nothing, and resolved against a theme (§3.1), so a theme swap changes every color derived from the theme's colors.
 
 | Value | Built by | Meaning |
@@ -122,13 +119,11 @@ A document names a color as a **typed value**, never a bare atom; the values are
 
   **A theme may pin steps** of a name (§2.2), and a shade of a pinned name reads them. A shade of any other color is computed.
 
-```planned-test:color-typed-transforms
+```test:color-typed-transforms
 each builder makes its value and refuses an out-of-range number, a non-color operand, a non-name and an empty blend; each transform equals the value computed independently through CSS Color 4's XYZ route; a blend follows color-mix's weights, premultiplied, its remainder transparent
 ```
 
 ### 1.4 Resolution and CSS {#themes-color-resolve}
-
-<!-- surfex: deferred #134: typed colors are resolved against the theme -->
 
 `Color.resolve(value, theme, mode)` resolves a color value in `:literal` or `:css` mode:
 - **Names and positions:** a name, a series position, a ramp position and a bare slot atom resolve as `Theme.resolve/3` resolves them (§3.1). A literal string is returned as written.
@@ -150,7 +145,7 @@ each builder makes its value and refuses an out-of-range number, a non-color ope
 
   A number is written with at most four decimals and no trailing zeros. The literal a browser evaluates from this CSS by CSS Color 4 and 5 is the literal `:literal` mode computes, within a channel's rounding; the tests hold the two to it with an evaluator of the CSS written from the CSS specifications alone.
 
-```planned-test:color-css-agrees
+```test:color-css-agrees
 every transform's CSS, evaluated by an evaluator written from CSS Color 4 and 5, gives the literal mode's color within a channel's rounding; names resolve to var references with their literal fallback
 ```
 
@@ -182,16 +177,12 @@ each deficiency's matrix is Machado's at severity 1, every gray is its own simul
 
 ## 2. The theme {#themes-theme}
 
-<!-- surfex: deferred #134: the theme document -->
-
 ### 2.1 Fields and slots {#themes-slots}
-
-<!-- surfex: deferred #134: the theme document -->
 
 `%Macaw.Layers.Theme{name, series, axis, grid, text, background, surface, ramps, colors, styles, defaults, font_family, font_size, label_size, title_size, dark, light, extensions}`:
 
 - **`name`** — the theme's name. A built-in theme's is an atom (`:default`, `:dark`, `:color_safe`, `:print`); a host's is its string (`name: :house` is held as `"house"`), so a theme built in Elixir and the one its document reads are one value.
-- **`series`** — a non-empty list of color strings.
+- **`series`** — a non-empty list of at most 64 color strings, far past the categories a reader can tell apart by color; the slots `:series_1` … `:series_64` are the library's atoms, written out, so none is made from a document.
 - **`axis`, `grid`, `text`, `background`, `surface`** — the **furniture**, color strings.
 - **`ramps`** — each ramp name of §2.3 to its anchors.
 - **`colors`** — the theme's own part of its color table (§2.2).
@@ -201,7 +192,7 @@ each deficiency's matrix is Machado's at severity 1, every gray is its own simul
 - **`dark` and `light`** — the built-in theme that stands for this one in the viewer's dark or light color scheme, or `nil` (§6).
 - **`extensions`** — the registered extensions (§3.4), `[]` by default.
 
-Every field is plain data, so a theme is stored and compared as a value.
+Every field is plain data, so a theme is stored and compared as a value. **Names are the library's atoms or strings:** a key or an atom value of a palette entry or of `defaults` outside the library's vocabulary (`Macaw.Layers.Theme.Words`: the fields, the style parts and their keys, the built-in palette's values and names) is held by its string, as a color a theme adds is, so a theme built in Elixir and the theme its document reads are one value and no atom is made from a document.
 
 A **slot** names one value of a theme:
 
@@ -215,13 +206,11 @@ A **slot** names one value of a theme:
 
 `slots/1` lists a theme's slots in that order. `series_slot/2` is the `:series_k` that `{:series, i}` cycles to. A slot that is none of these, or `:series_k` outside `1..n`, raises `ArgumentError` in every function that takes a slot. `color_slots/1` is the color slots alone: the series, the furniture, then the five roles.
 
-```planned-test:themes-slots-order
+```test:themes-slots-order
 slots lists the series then the furniture, roles and font slots in order; series positions cycle; an unknown slot or a series slot beyond the palette raises
 ```
 
 ### 2.2 The color table {#themes-color-table}
-
-<!-- surfex: deferred #134: the theme document -->
 
 Every color a document names with `color(name)` is looked up in the theme's **color table**, in this order:
 1. the theme's own `colors`;
@@ -244,13 +233,11 @@ The built-in themes' own `colors`:
 
 `color_names/1` lists a theme's table, sorted. `color_name?/2` answers membership without building the list (visualize D-184). A theme's `roles` key, the role colors of before visualize#663, is read as `colors`.
 
-```planned-test:themes-color-table
+```test:themes-color-table-lookup
 a name resolves from the theme's colors, then the default's, then an extension's, then the CSS names; furniture and series are names; a host's name is held by its string and found by either spelling; pinned steps need 500 and integer steps in range
 ```
 
 ### 2.3 Ramps and roles {#themes-ramps}
-
-<!-- surfex: deferred #134: the theme document -->
 
 A palette position promises *distinct*, never a meaning. Colors that carry meaning a reader brings with them — the stop-light, cold and hot, below and above a target — are carried as **ramps**, whose meaning the library fixes and whose tones the theme tunes (visualize D-135).
 
@@ -285,13 +272,11 @@ The built-ins run `status` and `sequential` away from their background, so the r
 
 **Fallback:** a theme lacking a ramp or a color name takes the default theme's, never a series color, since a series color carries no meaning.
 
-```planned-test:themes-ramps-contracts
+```test:themes-ramps-contracts
 ramp interpolates in Lab between evenly spaced anchors and clamps t; each built-in theme holds every ramp and role contract; a ramp breaking hue order, lightness, neutrality, chroma or family is refused naming the anchor and the term; a missing ramp falls back to the default's; cue gives each role's glyph and dash
 ```
 
 ### 2.4 The style palette {#themes-palette}
-
-<!-- surfex: deferred #134: the theme document -->
 
 `styles` carries the palette over to **whole styles** — fill, stroke and its width, dash, opacity, marker, font — so a document can name a whole look by position, by meaning or by view state, and a theme swap restyles it.
 
@@ -303,7 +288,7 @@ ramp interpolates in Lab between evenly spaced anchors and clamps t; each built-
 | furniture styles | `:axis`, `:grid`, `:label`, `:title`, `:caption`, `:value`, `:annotation` | the furniture's lines and each kind of text |
 | modifiers | `:bold`, `:italic`, `:thin`, `:thick`, `:dashed`, `:dotted`, `:outline` | one change each, to stack on a look |
 
-A theme chooses only how many style series it has, with no gap, and how each entry looks. **It cannot add a name**: the names are the library's and its registered extensions' (§3.4), so a document that names one reads the same on every theme.
+A theme chooses only how many style series it has, at most 64 with no gap, and how each entry looks. **It cannot add a name**: the names are the library's and its registered extensions' (§3.4), so a document that names one reads the same on every theme.
 
 **An entry is a style node in parts, written in slots:** its keys are the parts `fill`, `stroke`, `font`, `text`, `effect`, `marker`, `curve`, and `opacity`, `blend` and `class`. Its colors are typed values or slots, never literals where a slot says the same (`fill: %{type: :solid, color: {:color, :bad}}`, `stroke: %{type: :solid, color: {:series, 3}, width: 1.5}`, `font: %{size: :label_size}`). A bare atom in a color position is the typed color it names. In a role's entry, `stroke: %{dash: :cue}` and `marker: %{shape: :cue}` take the role's cue. An entry may be **a list** of palette names and nodes, stacked left to right. It may not use `extends`: the palette is the end of every chain. Entries may be partial: a state or a modifier gives a few keys.
 
@@ -333,13 +318,11 @@ A theme chooses only how many style series it has, with no gap, and how each ent
 
 `style(theme, name)` is an entry — a name, or `{:style, i}` cycling — as a flat node, the default theme's entry whole when the theme lacks it, `:cue` replaced by the role's cue (its dash left out where solid). `style_names/1` lists the names: the style series, then roles, states, furniture and modifiers, then the extensions'. **Fallback** is whole, never key by key, since a partial entry laid over another theme's would be a look neither chose.
 
-```planned-test:themes-palette-entries
+```test:themes-palette-entries
 the built-in palette gives every entry of the table on every built-in theme; style resolves cues and cycles style positions; a missing entry falls back to the default's whole; a theme cannot add a name; a list entry stacks and may not reach itself
 ```
 
 ### 2.5 The built-in themes {#themes-builtins}
-
-<!-- surfex: deferred #134: the theme document -->
 
 | Field | `default/0` | `dark/0` |
 |---|---|---|
@@ -361,13 +344,11 @@ the built-in palette gives every entry of the table on every built-in theme; sty
 
 `builtin/1` is the theme of a built-in name, else `nil`. `new/1` is `default/0` with the given fields replaced and `ramps`, `colors`, `styles` and `defaults` merged key by key. `merge/2` does the same for any theme. An unknown field raises `KeyError`, an empty `series` raises `ArgumentError`, and a contract broken raises `ArgumentError` (§2.6).
 
-```planned-test:themes-builtins-values
+```test:themes-builtins-values
 each built-in theme has the table's values and pairs default with dark; color_safe and print change exactly what the section says; new and merge replace fields and merge ramps, colors, styles and defaults by key; an unknown field and an empty series raise
 ```
 
 ### 2.6 Contracts and contrast {#themes-contracts}
-
-<!-- surfex: deferred #134: the theme document -->
 
 **Contracts are checked when a theme is built:** `new/1` and `merge/2` check every ramp, color and palette entry, and raise `ArgumentError` naming the theme, the subject and the term it breaks:
 
@@ -396,23 +377,19 @@ each built-in theme has the table's values and pairs default with dark; color_sa
 - `grid` at least 1.2:1;
 - `surface` different from `grid`.
 
-The built-ins hold them. `floors/1` answers `:ok` or `{:error, faults}`. **Contrast is checked once, on the theme** (macaw_compose spec/10): a host offers a theme only when `floors/1` and `check/1` pass, and a user-defined theme that fails is refused (macaw_compose spec/11 §1).
+The built-ins hold them. `floors/1` answers `:ok` or `{:error, faults}`, each fault `{slot, {:contrast, ratio, floor}}` (the ratio floored to two decimals, a translucent color laid over the background first) or `{:surface, {:equal, :grid}}`. **Contrast is checked once, on the theme** (macaw_compose spec/10): a host offers a theme only when `floors/1` and `check/1` pass, and a user-defined theme that fails is refused (macaw_compose spec/11 §1).
 
-```planned-test:themes-palette-contracts
+```test:themes-palette-contracts
 each palette contract refuses its fault with the theme, the entry and the measured value named: an unknown name, a gap, extends, a misplaced cue, two roles alike without hue, two role colors too close, a role paint under 3:1 or text under 4.5:1, an unknown color, a state that changes only color, neighbors alike, a font missing, a grid with no stroke, a modifier of two keys
 ```
 
-```planned-test:themes-floors-builtins
+```test:themes-floors-builtins
 every built-in theme meets the floors and every contract; floors refuses text under 4.5:1, an axis or series color under 3:1, a grid under 1.2:1 and a surface equal to the grid
 ```
 
 ## 3. Resolution, the ink and extensions {#themes-rules}
 
-<!-- surfex: deferred #134: the theme document -->
-
 ### 3.1 Resolution {#themes-resolution}
-
-<!-- surfex: deferred #134: the theme document -->
 
 `resolve(theme, slot_or_name, mode)` is the one door through which anything reads a theme:
 - **`:literal`:** the value as stored, a color or font string or a size number. A canvas and a PNG resolve this way.
@@ -424,23 +401,19 @@ every built-in theme meets the floors and every contract; floors refuses text un
 
 **The reference carries its fallback rather than the root declaring the property** (visualize D-55): a declaration on an element would beat every ancestor rule, so a theme could not be switched from a class. With the fallback, output rendered outside any stylesheet still draws in its theme, and a class on any ancestor overrides it.
 
-```planned-test:themes-resolve-modes
+```test:themes-resolve-modes
 resolve gives a literal or a var reference with the literal fallback for every slot, role and name, sizes in px; ramp positions are literals except the status roles' positions; css_name maps names; an unknown name raises
 ```
 
 ### 3.2 The contrast ink {#themes-ink}
 
-<!-- surfex: deferred #134: the theme document -->
-
 `ink(theme, under)` (visualize D-123) is the color a text drawn on `under` takes: the theme's `text` or `background`, whichever contrasts more with `under` (`text` on a tie), **always as a literal**. When the better of the two is under 4.5:1, it is `#000000` or `#ffffff` instead, one of which always reaches 4.58:1 or better. `under` is a color string, a `%Color{}`, or `nil` for the theme's background. A string that does not parse is `nil`, and a slot whose own value does not parse is skipped. It is a literal because the choice is made between literals: a re-pointed custom property would undo it.
 
-```planned-test:themes-ink-aa
+```test:themes-ink-aa
 ink chooses text or background by contrast, text on a tie, and black or white when neither reaches 4.5:1, so the ink always meets 4.5:1; nil is the background and an unreadable color is nil
 ```
 
 ### 3.3 Precedence {#themes-precedence}
-
-<!-- surfex: deferred #134: the theme document -->
 
 Where a color comes from, highest first:
 1. a choice the document makes: under the `:open` profile a literal, or a document's own color scale or palette entry of a name;
@@ -450,13 +423,11 @@ Where a color comes from, highest first:
 
 **One theme per page.** A component's own theme setting (a visualize design's `theme`) is an override the page **masks** (spec/02 §4); standalone, it applies. **Themes stack** like any fragment (§5): a host's theme is a layer over a built-in.
 
-```planned-test:themes-precedence-layers
+```test:themes-precedence-layers
 a document's palette entry beats the theme's, the theme's the default's and the default's an extension's; a page masks a component's theme key; a theme document stacked over a built-in is the merged theme
 ```
 
 ### 3.4 Extensions: what adopters register {#themes-extensions}
-
-<!-- surfex: deferred #134: the theme document -->
 
 **Adopters register what their documents name beyond the library's vocabulary**, so one theme styles them (visualize's mark roles). An extension is a module implementing `Macaw.Layers.Theme.Extension`:
 
@@ -466,15 +437,13 @@ a document's palette entry beats the theme's, the theme's the default's and the 
 | `styles() :: %{atom => {group, entry}}` | palette names it adds, each in a group of §2.4 (`:state`, `:furniture`, `:modifier`), with its default entry |
 | `colors() :: %{atom => color}` | names it adds to the color table, each with a default value |
 
-A theme carries its extensions in `extensions`, given explicitly (`new(extensions: [Visualize.Theme.Roles])`). The list is **default closed**: a palette name or color name that neither the library nor an extension has is a fault naming it. The names an extension adds are held to the contracts of their group, its default entries included. Two extensions adding one name, or an extension adding a library name, raise `ArgumentError` naming both.
+A theme carries its extensions in `extensions`, given explicitly (`new(extensions: [MyApp.Marks])`). The list is **default closed**: a palette name or color name that neither the library nor an extension has is a fault naming it. The names an extension adds are held to the contracts of their group, its default entries included: a state's, a modifier's, and a furniture entry's as text furniture's when it has a font part and as the grid's otherwise. An extension's names follow the library's in `style_names/1` and `color_names/1`, and a document names them by spelling. Two extensions adding one name, an extension adding a library name, or a style in another group, raise `ArgumentError` naming both.
 
-```planned-test:themes-extensions-registered
+```test:themes-extensions-registered
 a registered extension's names are in the palette and the table with their defaults, held to their group's contracts; an unregistered name is a fault naming it; two extensions adding one name raise naming both
 ```
 
 ## 4. Literal and data colors: the profile {#themes-profile}
-
-<!-- surfex: deferred #134: the theme document -->
 
 - **Drawing colors are theme roles and tokens, and values derived from them** (`lighten(:warning)`), so contrast is checked on the theme (metresis.md C3).
 - **Literal colors are a profile's.** `Theme.check_color(value, profile)` answers `:ok` or `{:error, {:literal_color, value}}`:
@@ -489,20 +458,20 @@ a registered extension's names are in the palette and the table with their defau
 
   A data color is never the sole carrier of meaning (macaw_data spec/01 §1; macaw_compose#22, decision 7; visualize D-233).
 
-```planned-test:themes-profile-colors
+```test:themes-profile-colors
 under roles a literal anywhere in a color value is refused and every typed value passes; under open both pass; a data color under 3:1 against the background is refused with its ratio and one that reaches it is its literal
 ```
 
 ## 5. A theme as a document {#themes-document}
 
-<!-- surfex: deferred #134: the theme document -->
-
-A theme is stored and shipped as a value, so it is a **document** (spec/01): `Macaw.Layers.Theme.Document` implements `Macaw.Layers.Document`, `Version`, `Form` and `Fragment` (spec/02 §1), its root kind `:theme`. A theme document is the theme's fields under `theme`:
+A theme is stored and shipped as a value, so it is a **document** (spec/01): `Macaw.Layers.Theme.Document` implements `Macaw.Layers.Document`, `Version`, `Form` and `Fragment` (spec/02 §1), its one kind `:theme`, so `%{theme: node}` derives to it. A theme document is the theme's fields under `theme`, all but `extensions`, which are the host's and never travel:
 
 | Form | What |
 |---|---|
-| map | `%{version: v, theme: node}`; the store's fragment `%{theme: node}`, a library entry of kind `:theme`, reads as the same document |
-| JSON | `{"$version": v, "theme": {…}}`, pinned steps as `$steps` |
+| map | `%{version: v, theme: node}` (`to_map/1`); the store's fragment `%{theme: node}` (`fragment/1`), a library entry of kind `:theme`, reads as the same document |
+| JSON | `{"$version": v, "theme": {…}}` (`to_json/1`), each color value a tag: `{"$color": name}`, `{"$series": i}`, `{"$ramp": [name, t]}`, each transform by its name with `[color, number]` (`{"$lighten": [C, 0.3]}`), `{"$blend": [C, …]}`, `{"$contrast": "under" \| C}`; pinned steps as `{"$steps": [[n, color], …]}` |
+
+`from_map(document, opts)` and `from_json(json, opts)` take `limits:` and `extensions:`, the extensions the host registers, which the theme read carries and its contracts hold. A style series a document spells beyond the built-in ten reads as its name up to `style_64`, and a `series` longer than 64 is `{:limit, :series, 64, n}`.
 
 **Fragment rules:** `ramps`, `colors`, `styles` and `defaults` are `:union` name maps, and every other key is `:override`, so a theme stacks over a built-in as `new/1` merges (§2.5).
 
@@ -510,8 +479,9 @@ A theme is stored and shipped as a value, so it is a **document** (spec/01): `Ma
 1. the version gate;
 2. the limits;
 3. migration;
-4. the contracts, each broken one `{:contract, message}` at `[:theme, :ramps, name]`, `[:theme, :colors, name]` or `[:theme, :styles, name]`;
-5. then the theme.
+4. the theme's fields, each of its shape: an unknown key `:unknown_key`, a `series` that is not a non-empty list of strings, furniture and `font_family` that are not strings `{:type, :string}`, sizes that are not positive numbers `{:type, :pos_number}`, `ramps`, `colors`, `styles` and `defaults` that are not maps `{:type, :map}`, a counterpart that is no built-in `{:unknown_theme, name}`;
+5. the contracts, each broken one `{:contract, message}` at `[:theme, :ramps, name]`, `[:theme, :colors, name]` or `[:theme, :styles, name]`;
+6. then the theme.
 
 **What a theme document cannot hold:**
 - **variables:** nothing applies a theme, so a variable is `{:unresolved, :var, name}`;
@@ -520,7 +490,7 @@ A theme is stored and shipped as a value, so it is a **document** (spec/01): `Ma
 
 `from_map(to_map(t))` and `from_json(to_json(t))` are `{:ok, t}` for every theme `new/1` builds, the built-ins included.
 
-```planned-test:themes-document-forms
+```test:themes-document-forms
 a theme round-trips through its map and JSON forms, the built-ins and host themes with pinned steps included; a newer stamp, a broken contract at its path, a variable, an unknown theme name and an unknown key are refused; a theme fragment stacks over a built-in
 ```
 
