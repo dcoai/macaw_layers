@@ -7,7 +7,6 @@
 - **literal colors are a profile's** (§4): a Macaw page validates as `:roles`;
 - **visualize keeps** its style defaults, its mark style parts, the palette's assignment to marks, its backends and its builder's theme editor.
 
-Each section's tests are written as **`planned-test:` blocks** until its work item is built (macaw_compose#133–#135).
 
 | Module | What it is |
 |---|---|
@@ -496,21 +495,19 @@ a theme round-trips through its map and JSON forms, the built-ins and host theme
 
 ## 6. Delivery {#themes-delivery}
 
-<!-- surfex: deferred #135: theme delivery and v0.2.0 -->
-
 A theme compiles to **custom properties scoped by a class**, `.mw-theme-<name>` (`.mw-theme-dark`), in the site's static stylesheet, served from `'self'`. Adopters emit the same class, so a visualize chart standalone and on a page reads the same properties.
 
-- **`Sheet.rule(theme)`** is the theme's rule:
+- **`Sheet.rule(theme)`** is the theme's rule, its class the theme's name with `_` as `-` (a name that is not lower-case words raises `ArgumentError`, so a sheet can never be broken out of through a name):
   1. `.mw-theme-<name> {`;
   2. one `  --mw-<slot>: <value>;` per slot of `slots/1`, sizes with `px`;
   3. one line per name of the theme's own `colors` that is not a slot, in name order, as its literal, followed by one per step it pins other than 500 (`--mw-red-100`);
   4. `}`.
 
   Then comes a **forced-colors block**: `@media (forced-colors: active)` declaring `--mw-text` and `--mw-axis` as `CanvasText`, `--mw-background` and `--mw-surface` as `Canvas`, and `--mw-grid` as `GrayText`. In high-contrast mode what is drawn from the theme then agrees with the user's palette, and a role still reads by its dash and glyph.
-- **"Auto"** follows `prefers-color-scheme` through a media query in that same stylesheet. `Sheet.auto(light, dark)` is the rule `.mw-theme-auto` declaring `light`'s properties, then `@media (prefers-color-scheme: dark)` declaring `dark`'s under the same class. There is **never a `<style>` element per component** (macaw_compose spec/10).
+- **"Auto"** follows `prefers-color-scheme` through a media query in that same stylesheet. `Sheet.auto(light, dark)` is the rule `.mw-theme-auto` declaring `light`'s properties, then `@media (prefers-color-scheme: dark)` declaring `dark`'s under the same class, then the forced-colors block for `.mw-theme-auto`, so high contrast holds whichever class a page carries. There is **never a `<style>` element per component** (macaw_compose spec/10).
 - **`Sheet.stylesheet(themes, auto: {light, dark})`** is the whole static sheet: one rule per theme offered, in order, then the auto rule. Its bytes are a pure function of its themes, so it is cached and served by its digest (spec/01 §7), and a user-defined theme's sheet is served the same way (`/themes/<hash>.css`, macaw_compose spec/11 §1).
 - **Per-element styles resolve on the server** into SVG presentation attributes or classes, which is the adopter's rendering, through `resolve/3` in `:css` mode.
 
-```planned-test:themes-sheet-rules
+```test:themes-sheet-rules
 a theme's rule declares every slot, its own colors and pinned steps as custom properties under its class, with the forced-colors block; auto declares the light theme and switches to the dark one under prefers-color-scheme; the stylesheet is the rules in order and depends only on its themes
 ```
