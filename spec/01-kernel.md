@@ -284,14 +284,39 @@ tag/2 with a literal tag the table lacks is a compile error naming the table, a 
 
 ## 7. The digest {#kernel-digest}
 
-<!-- surfex: deferred #99: the digest is built in its own work item -->
+**`Macaw.Layers.Document.digest/1` fingerprints a document independently of key order.** It takes the document's map form (§6) and returns 64 lowercase hex characters: the SHA-256 of its **canonical encoding**, which is JSON with:
+- every object's keys sorted bytewise;
+- no insignificant whitespace;
+- each string as Elixir's `JSON` encodes it;
+- an integer in decimal, and a float in its shortest spelling that reads back as the same float (so `1` and `1.0` differ, as they do as values).
 
-**`Macaw.Layers.Document.digest/1` fingerprints a document independently of key order.** It is the SHA-256 of a canonical encoding of the document's JSON form: objects with their keys sorted, numbers and strings in one fixed spelling, no insignificant whitespace. The digest is 64 lowercase hex characters. Records, base renders and bundles cite a document by it.
+Records, base renders and bundles cite a document by its digest.
 
 - Reordering keys, at any depth, does not change the digest.
-- A document and its JSON round trip have the same digest.
-- Two documents that differ in any value have different digests.
-- The canonical encoding is part of the kernel's contract: changing it changes every digest, so it changes only with a new major version.
+- A document's map form and its JSON round trip have the same digest.
+- Two map forms that differ in any value have different digests.
+- A term that is not a map form (an atom key, an atom, a tuple, any value with no JSON form) raises `ArgumentError`: the caller writes the map form first.
+- **The canonical encoding is part of the kernel's contract.** Changing it changes every digest, so it changes only with a new major version.
+
+```test:digest-order
+over generated map forms, the digest is unchanged by reordering keys at any depth, and is 64 lowercase hex characters
+```
+
+```test:digest-round-trip
+over generated map forms, the digest of the JSON round trip equals the digest of the map form
+```
+
+```test:digest-differs
+over generated pairs of different map forms, the digests differ; 1 and 1.0 differ, and so do "a" and ["a"]
+```
+
+```test:digest-golden
+a fixed document's digest is the recorded one, so any change to the canonical encoding fails the test
+```
+
+```test:digest-not-map-form
+an atom key, an atom value and a tuple each raise ArgumentError naming the term
+```
 
 ## 8. Untrusted strings {#kernel-untrusted}
 

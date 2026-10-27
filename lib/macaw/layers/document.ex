@@ -132,4 +132,56 @@ defmodule Macaw.Layers.Document do
     |> Enum.map(&{path ++ [&1], :unknown_key})
     |> Fault.sort()
   end
+
+  @doc """
+  The canonical digest of a document's map form (`Macaw.Layers.Form.to_map/2`): 64
+  lowercase hex characters, the SHA-256 of its canonical encoding (spec/01 §7).
+
+  The encoding is JSON with objects' keys sorted bytewise, no insignificant whitespace,
+  each string as `JSON` encodes it, an integer in decimal, and a float in its shortest
+  spelling that reads back as the same float. Reordering keys, at any depth, does not
+  change the digest; a document and its JSON round trip have the same one. The encoding is
+  part of the kernel's contract: changing it changes every digest, so it changes only with
+  a new major version.
+
+  Raises `ArgumentError` for a term that is not a map form: an atom key, a tuple, any
+  value JSON has no form for. Write the value's map form first.
+
+      iex> Macaw.Layers.Document.digest(%{"b" => 1, "a" => [true, nil]}) ==
+      ...>   Macaw.Layers.Document.digest(%{"a" => [true, nil], "b" => 1})
+      true
+  """
+  @spec digest(map()) :: String.t()
+  def digest(map) when is_map(map) and not is_struct(map) do
+    :sha256
+    |> :crypto.hash(canonical(map))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp canonical(map) when is_map(map) and not is_struct(map) do
+    pairs =
+      map
+      |> Enum.map(fn
+        {k, v} when is_binary(k) -> {k, v}
+        {k, _v} -> raise ArgumentError, "a map form's keys are strings, got: #{inspect(k)}"
+      end)
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.map(fn {k, v} -> [JSON.encode!(k), ?:, canonical(v)] end)
+
+    [?{, Enum.intersperse(pairs, ?,), ?}]
+  end
+
+  defp canonical(list) when is_list(list),
+    do: [?[, list |> Enum.map(&canonical/1) |> Enum.intersperse(?,), ?]]
+
+  defp canonical(s) when is_binary(s), do: JSON.encode!(s)
+  defp canonical(i) when is_integer(i), do: Integer.to_string(i)
+  defp canonical(f) when is_float(f), do: :erlang.float_to_binary(f, [:short])
+  defp canonical(true), do: "true"
+  defp canonical(false), do: "false"
+  defp canonical(nil), do: "null"
+
+  defp canonical(other),
+    do:
+      raise(ArgumentError, "not a map form's value: #{inspect(other)}; write the map form first")
 end

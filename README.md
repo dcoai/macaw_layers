@@ -10,6 +10,7 @@ Macaw's document layer ([spec/00](spec/00-overview.md)): the document kernel eve
 | `Macaw.Layers.Version` | one version line per document type, and stepwise migration ([spec/01 §4](spec/01-kernel.md#kernel-versions)) |
 | `Macaw.Layers.Document`, `Macaw.Layers.Limits`, `Macaw.Layers.Scan` | the gates a document is read through, in order: bytes, a scan that stops at a limit, decode, version, migrate, validate and recount ([spec/01 §5](spec/01-kernel.md#kernel-gates)) |
 | `Macaw.Layers.Form`, `Macaw.Layers.Tags` | the value, map and JSON forms, exact inverses, and each type's table of `$` tags ([spec/01 §6](spec/01-kernel.md#kernel-forms)) |
+| `Macaw.Layers.Document.digest/1` | a canonical digest of a document's map form, independent of key order ([spec/01 §7](spec/01-kernel.md#kernel-digest)) |
 
 No runtime dependencies. Released by git tag:
 
