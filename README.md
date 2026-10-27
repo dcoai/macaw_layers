@@ -8,6 +8,7 @@ Macaw's document layer ([spec/00](spec/00-overview.md)): the document kernel eve
 | `Macaw.Layers.Vocabulary` | closed vocabularies looked up by spelling ([spec/01 §2](spec/01-kernel.md#kernel-vocabulary)) |
 | `Macaw.Layers.Fault` | the fault `{path, reason}`, its order, and the one formatter ([spec/01 §3](spec/01-kernel.md#kernel-faults)) |
 | `Macaw.Layers.Version` | one version line per document type, and stepwise migration ([spec/01 §4](spec/01-kernel.md#kernel-versions)) |
+| `Macaw.Layers.Document`, `Macaw.Layers.Limits`, `Macaw.Layers.Scan` | the gates a document is read through, in order: bytes, a scan that stops at a limit, decode, version, migrate, validate and recount ([spec/01 §5](spec/01-kernel.md#kernel-gates)) |
 
 No runtime dependencies. Released by git tag:
 

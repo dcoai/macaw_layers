@@ -64,7 +64,7 @@ defmodule Macaw.Layers.FaultTest do
     assert words.({:newer_schema, 4, 3}) == "needs schema v4, this is v3"
     assert words.({:limit, :bytes, 10, 12}) == "is 12 bytes; the limit bytes is 10"
     assert words.({:limit, :depth, 64, 65}) == "is nested 65 deep; the limit depth is 64"
-    assert words.({:limit, :items, 5, 6}) == "holds 6 items; the limit items is 5"
+    assert words.({:limit, :items, 5, 6}) == "holds at least 6 items; the limit items is 5"
     assert words.({:json, "unexpected byte"}) == "JSON does not parse: unexpected byte"
     assert words.({:unknown_tag, "$x"}) == ~s("$x" is not a tag this document reads)
     assert words.({:retired_tag, "$old", "was removed"}) == ~s("$old" was removed)

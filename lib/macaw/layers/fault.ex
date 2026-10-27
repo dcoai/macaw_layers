@@ -98,7 +98,7 @@ defmodule Macaw.Layers.Fault do
     do: {:ok, "is nested #{given} deep; the limit depth is #{max}"}
 
   defp kernel_words({:limit, :items, max, given}),
-    do: {:ok, "holds #{given} items; the limit items is #{max}"}
+    do: {:ok, "holds at least #{given} items; the limit items is #{max}"}
 
   defp kernel_words({:json, message}), do: {:ok, "JSON does not parse: #{message}"}
 

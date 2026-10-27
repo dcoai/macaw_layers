@@ -86,7 +86,7 @@ The kernel's reasons and their words:
 | `{:type, type}` | must be *type*, for the types below; any other type is the document type's to word |
 | `{:enum, allowed}` | must be one of *allowed*, each shown with `inspect/1`, joined by `, ` |
 | `{:newer_schema, needs, this}` | needs schema v*needs*, this is v*this* |
-| `{:limit, name, max, given}` | for `:bytes`, is *given* bytes; the limit bytes is *max*; for `:depth`, is nested *given* deep; the limit depth is *max*; for `:items`, holds *given* items; the limit items is *max* |
+| `{:limit, name, max, given}` | for `:bytes`, is *given* bytes; the limit bytes is *max*; for `:depth`, is nested *given* deep; the limit depth is *max*; for `:items`, holds at least *given* items; the limit items is *max* (a scan that stops at the limit knows only that much) |
 | `{:json, message}` | JSON does not parse: *message* |
 | `{:unknown_tag, tag}` | *tag* is not a tag this document reads |
 | `{:retired_tag, tag, why}` | *tag* *why* |
@@ -154,17 +154,18 @@ over generated documents and versions, migrating gives the same result twice, an
 
 ## 5. The gates {#kernel-gates}
 
-<!-- surfex: deferred #97: the gates are built in their own work item -->
-
-**Every document is read through the same gates, in this order,** by `Macaw.Layers.Document.read/3` (`read(input, type, opts)`), whether it came from a file, a database or an object store. A fetched document is untrusted input: the same gates apply, and nothing in it is evaluated.
+**Every document is read through the same gates, in this order,** by `Macaw.Layers.Document.read/3` (`read(input, type, opts)`), whether it came from a file, a database or an object store. A fetched document is untrusted input: the same gates apply, and nothing in it is evaluated. The type implements the behaviors `Macaw.Layers.Version` (§4) and `Macaw.Layers.Document`, whose one callback, `validate/1`, judges a document at the current version.
 
 1. **Bytes.** An encoded document (a JSON binary) longer than the `bytes` limit is refused as `{[], {:limit, :bytes, max, given}}` before anything else is done with it.
-2. **Decode with `depth` and `items` limits,** by a scan that stops at a limit. `Macaw.Layers.Scan` walks the encoded bytes, tracking strings and their escapes, nesting and the elements of each object and array, and stops at the first limit it passes: it builds no value. Only a document that passes the scan is decoded, with Elixir's `JSON`. Malformed JSON is `{[], {:json, message}}`. A map given directly (the map form) is walked for the same limits instead.
+2. **Decode with `depth` and `items` limits, by a scan that stops at a limit.** `Macaw.Layers.Scan` walks the encoded bytes, tracking strings and their escapes, the nesting, and the entries of each object and array. It builds no value: it holds one frame per open container and the current key of each open object, so its fault can name a path. **It stops at the first limit it passes** and reports that one. Only a document that passes the scan is decoded, with Elixir's `JSON`.
+   - Malformed JSON is `{[], {:json, words}}`. The scan never fails on malformed input: what it can't make sense of, it leaves to the decoder.
+   - A document whose root is not an object is `{[], {:type, :map}}`.
+   - A map given directly (the map form) skips the bytes gate and is walked for the same limits instead (`Macaw.Layers.Limits.structure/2`), every fault reported.
 3. **Version** (§4): a newer stamp is refused by name before anything else of the value is read.
 4. **Migrate** (§4), step by step.
-5. **Validate**, by the document type, and **count `depth` and `items` again**, since a migration can grow a document.
+5. **Validate**, by the type's `validate/1`, and **count `depth` and `items` again**, since a migration can grow a document. Both sets of faults are reported, ordered by path.
 
-Faults from one gate stop the gates after it: a document over a limit is not decoded, and one that does not decode has no version to read. Within a gate, every fault is reported, ordered by path (§3).
+Faults from one gate stop the gates after it: a document over a limit is not decoded, and one that does not decode has no version to read. `read/3` returns `{:ok, document}`, the map at the current version, or `{:error, faults}`.
 
 **The limits** (`Macaw.Layers.Limits`):
 
@@ -174,10 +175,47 @@ Faults from one gate stop the gates after it: a document over a limit is not dec
 | `depth` | `64` | how deeply objects and arrays nest; the document itself is depth 1 |
 | `items` | `100_000` | the entries any one object or array holds |
 
-- **A host may tighten every limit,** by `limits:` in `read/3`'s options; a limit it does not name keeps its default. A value above the default, or one that is not a positive integer, or a name that is not a limit, raises `ArgumentError` when the limits are built: a host can't loosen a sanity limit by mistake.
-- Past the depth limit, a branch is reported once, at the first object or array beyond it, as `{path, {:limit, :depth, max, given}}`, and not walked further. An object or array over the items limit is reported at its own path as `{path, {:limit, :items, max, given}}`.
+- **A host may tighten every limit,** by `limits:` in `read/3`'s options; a limit it does not name keeps its default. A value above the default, one that is not a positive integer, or a name that is not a limit raises `ArgumentError` when the limits are built (`Limits.new/1`): a host can't loosen a sanity limit by mistake.
+- **Depth:** a container beyond the limit is reported once, at its own path, as `{path, {:limit, :depth, max, max + 1}}`, and nothing inside it is walked.
+- **Items:** a container over the limit is reported at its own path as `{path, {:limit, :items, max, given}}`. The scan stops once a container holds one entry more than the limit, so its *given* is `max + 1`; the walk of a map form counts every entry. A key that appears twice in one object is counted twice by the scan, as the document holds it twice.
 
-**Unknown keys are refused by name,** at their own spelling: a key the document type does not know is `{path ++ [key], :unknown_key}`, with *key* the string the document wrote.
+**Unknown keys are refused by name,** at their own spelling: a key the document type does not know is `{path ++ [key], :unknown_key}`, with *key* the string the document wrote. `Macaw.Layers.Document.unknown_keys/3` gives these faults for a map and the type's known keys, for a type's `validate/1` to report.
+
+```test:gates-bytes
+a document one byte over a tightened bytes limit is refused as the bytes fault alone, and one at the limit passes; a map form skips the gate
+```
+
+```test:gates-scan-stops
+a document nested a million deep, and one whose array holds a million entries, are refused at their first limit with bounded work: far fewer reductions than reading the document, and no value built
+```
+
+```test:gates-scan-paths
+the scan's fault names the path of the container that passes the limit, through object keys (escapes read) and array indexes, and strings holding brackets, commas and escaped quotes are not structure
+```
+
+```test:gates-scan-agrees
+over generated JSON values, the scan passes exactly those the walk of the decoded value passes, and when it refuses one, its fault is one the walk reports, at the same path and limit
+```
+
+```test:gates-json
+malformed JSON is one {:json, words} fault at the root, never a crash, whatever the bytes; a root that is not an object is {[], {:type, :map}}
+```
+
+```test:gates-order
+a newer stamp is refused before the type's validate/1 runs; a document over a limit is not version-checked; the type's faults and the recount's are reported together, ordered by path
+```
+
+```test:gates-recount
+a migration that grows a document past the depth or items limit is refused after migration, at the grown path
+```
+
+```test:gates-limits
+Limits.new/1 tightens a named limit and keeps the rest at their defaults; a loosened limit, a non-positive or non-integer value, and an unknown name each raise ArgumentError
+```
+
+```test:gates-unknown-keys
+unknown_keys/3 refuses each key not among the known ones at its own spelling under the given path, ordered, and refuses none of the known
+```
 
 ## 6. Forms and tags {#kernel-forms}
 
