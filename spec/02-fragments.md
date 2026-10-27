@@ -1,7 +1,5 @@
 # 02 — Fragments and stacking {#documents-fragments}
 
-<!-- surfex: deferred #129: the fragment-type behavior, compose, stack, masks and explain -->
-
 Every configurable thing in Macaw is a document of the **fragment shape** (macaw_compose spec/07 §1): pages, surfaces and cells, component settings, templates, layers, themes and styles, and visualize's designs. They combine, mask, bind and explain the same way, through the machinery this file specifies. It is visualize's (spec/14 §1.4–§1.5, §7, §8, §17.1–§17.2, §19; D-58, D-65, D-81–D-84, D-87, D-92, D-98–D-104, D-182, D-187, D-195), made generic over document types (macaw_compose#94):
 
 - **the rules are the type's.** Which keys append, unite, deepen or override, which elements a layer replaces in place, where a fragment of each kind lands: visualize read these from its chart schema. Here a document type declares them through one behavior (§1), so the machinery holds no type's vocabulary and every type combines the same way;
@@ -19,8 +17,6 @@ Each section's tests are written as **`planned-test:` blocks** until its work it
 
 ## 1. Fragment types {#fragments-types}
 
-<!-- surfex: deferred #129: the fragment-type behavior, compose, stack, masks and explain -->
-
 A **fragment** is a document of a type, or any part of one: a map with the type's keys, not necessarily all of them and not validated. A **document type** that stacks implements `@behaviour Macaw.Layers.Fragment` beside `Macaw.Layers.Document` and `Macaw.Layers.Version` (spec/01 §4, §5):
 
 | Callback | Contract |
@@ -37,17 +33,15 @@ A **fragment** is a document of a type, or any part of one: a map with the type'
 | `inline(document, fetch) :: {document, [{id, path}]}` *(optional)* | every id left at a reference site of a flattened document resolved through `fetch`, and the ids that were missing (§8.1) |
 | `decompose(document) :: [Use.t()]` *(optional)* | a whole document as inline sites, one kind each (§8.2) |
 
-A `spec`'s `merge` is a rule of §2. `node` is the node kind of a key whose value is a node, so a node given as a map by both fragments combines key by key under that kind's specs; `element` is the node kind of a `:concat` list's elements, which `identity/2` reads. A key the type does not know is `:override` with no node: it is taken as it is.
+A `spec`'s `merge` is a rule of §2; `node` and `element` may be left out, and are then `nil`. `node` is the node kind of a key whose value is a node, so a node given as a map by both fragments combines key by key under that kind's specs; `element` is the node kind of a `:concat` list's elements, which `identity/2` reads. A key the type does not know is `:override` with no node: it is taken as it is.
 
 **A struct is a leaf of every walk** (visualize D-92). A variable stands *for* a value rather than being one, so no walk — composition, the cascade, binding, explanation, the forms, the free-variable walk — descends into a struct or merges one as a map, whatever the type says of the key it sits at. That a struct is a map in Elixir is an implementation fact and never a license to walk it: a walk excludes it explicitly. The two walks for **ids** (`refs/2`, `relocate/3`, §6.2) read a use site's parts by name (§7.1); every other walk keeps the rule.
 
-```planned-test:fragments-type-callbacks
+```test:fragments-type-callbacks
 a test fragment type declares its root, keys, identities, kinds, wrappers and placement; an unknown key is override with no node; a struct is a leaf of every walk, a use site's ids read by name only by refs and relocate
 ```
 
 ## 2. Merge rules {#fragments-rules}
-
-<!-- surfex: deferred #129: the fragment-type behavior, compose, stack, masks and explain -->
 
 Every key declares how two fragments combine under it. The **Effect** column is the union's (`compose/3`, §3.1); the cascade's difference where two fragments collide is §3.2.
 
@@ -61,13 +55,11 @@ Every key declares how two fragments combine under it. The **Effect** column is 
 
 **A key either fragment gives as a struct** — a whole-node variable — is not a map of names, a list or a node, whatever its rule: equal in both it is taken once, and different it is the later's, which `compose/3` reports as `:conflict` at the *key's* path and `stack/2` takes silently (§3). A variable at a `:concat` key is the later's value with no conflict, since a collection has no names for two fragments to claim.
 
-```planned-test:fragments-rules-each
+```test:fragments-rules-each
 each of the five rules combines as its row says under compose and under stack; a struct at a mergeable key is one value, a conflict for compose at the key's path and the higher layer's for stack
 ```
 
 ## 3. Composition and the stack {#fragments-stack}
-
-<!-- surfex: deferred #129: the fragment-type behavior, compose, stack, masks and explain -->
 
 Two operations close over fragments, and both are total in the sense that matters: their result is a fragment, so a stored composition is a part of another and a stored stack a layer of another. **`compose/3` is the union:** it assembles one document from parts meant to be disjoint, and a name two of them declare differently is a fault. **`stack/2` is the cascade:** it layers documents meant to overlap — a house look, a shared frame, a cell's own overrides — and a name two layers declare differently is the higher layer's word. Neither validates nor fills defaults: the result becomes a document through the type's reader (spec/01 §5), which is where it validates.
 
@@ -80,8 +72,6 @@ Two operations close over fragments, and both are total in the sense that matter
 
 ### 3.1 `compose/3`: the union {#fragments-compose}
 
-<!-- surfex: deferred #129: the fragment-type behavior, compose, stack, masks and explain -->
-
 For each key present in either fragment, by the key's spec in the node kind being merged, starting at the type's `root()`:
 
 - **`:concat`** — the later fragment's elements after the earlier's.
@@ -92,13 +82,11 @@ For each key present in either fragment, by the key's spec in the node kind bein
 
 A key present in one fragment alone is taken as it is. Over a list, `:concat` and `:union` keys compose associatively and `:override` keys last-wins, so the order of the fragments is the order of their elements and the precedence of their scalars.
 
-```planned-test:fragments-compose-union
+```test:fragments-compose-union
 compose appends concat keys, unites union keys reporting every conflict at its name's path, deepens deep keys, overrides scalars and recurses into nodes; the list form folds left and compose of nothing is the empty fragment
 ```
 
 ### 3.2 `stack/2`: the cascade {#fragments-cascade}
-
-<!-- surfex: deferred #129: the fragment-type behavior, compose, stack, masks and explain -->
 
 For each key present in either layer, by the key's spec in the node kind being merged:
 
@@ -112,11 +100,11 @@ A key one layer alone carries is passed through untouched, so a fragment that is
 
 **The two agree where the fragments are disjoint.** Over two fragments that declare no `:union` or `:deep` name and no `:override` key in common, `stack` is the map `compose` answers: the property that holds the two definitions together as a type's rules grow.
 
-```planned-test:fragments-cascade-identity
+```test:fragments-cascade-identity
 a higher element with the lower's identity replaces it whole in place, every other appends; duplicates in either layer collapse to first position and last value; a union name is the higher entry whole; a key one layer carries passes through untouched
 ```
 
-```planned-test:fragments-stack-algebra
+```test:fragments-stack-algebra
 stack is the left fold and associative wherever no layer gives a mergeable key as a struct; stack of one layer is that layer; over disjoint fragments stack equals the map compose answers
 ```
 
@@ -181,21 +169,15 @@ free lists each variable of the stacked result by name with every use by path an
 
 ## 6. Kinds, ids and provenance {#fragments-kinds}
 
-<!-- surfex: deferred #129: the fragment-type behavior, compose, stack, masks and explain -->
-
 ### 6.1 The kind of a fragment {#fragments-kind}
 
-<!-- surfex: deferred #129: the fragment-type behavior, compose, stack, masks and explain -->
+**A kind is derived, never stored.** `Fragment.kind(type, fragment)` walks down while the fragment sets exactly one key, and the kind is the last thing reached: a **singular wrapper** (`%{style: %{…}}`, the type's `wrapper/1`) is the kind it names, a name map holding one entry (`%{frames: %{main: …}}`) is the kind of that entry (`:frame`), a list holding one or several elements the elements' kind, and `%{composite: %{uses: …}}` is `:composite`. **A fragment about more than one thing is no kind of fragment** — a map that branches at the top, or whose one key stops at the root (`%{version: 2}`), derives to `nil`, and a store refuses to hold it (spec/03 §1); the thing that is many kinds is a composite, whose sites are each one kind (§8). A whole document is therefore stored under its type's wrapper (`%{theme: …}`, §5 of spec/04), never bare. The wrapper is what keeps a bare body's kind readable without a store having to say it: inside a fragment's body there is no name at all, only values (`%{style: %{stroke_width: 5}}`).
 
-**A kind is derived, never stored.** `Fragment.kind(type, fragment)` walks down while the fragment sets exactly one key, and the kind is the last thing reached: a **singular wrapper** (`%{style: %{…}}`, the type's `wrapper/1`) is the kind it names, a name map holding one entry (`%{frames: %{main: …}}`) is the kind of that entry (`:frame`), `%{composite: %{uses: …}}` is `:composite`, and a whole document is the type's `root()`. **A fragment about more than one thing is no kind of fragment** — a map that branches at the top derives to `nil`, and a store refuses to hold it (spec/03 §1); the thing that is many kinds is a composite, whose sites are each one kind (§8). The wrapper is what keeps a bare body's kind readable without a store having to say it: inside a fragment's body there is no name at all, only values (`%{style: %{stroke_width: 5}}`).
-
-```planned-test:fragments-kind-derived
+```test:fragments-kind-derived
 kind walks single keys to the wrapper's kind, a one-entry name map to its entry's kind, a composite to composite and a whole document to the root; a map that branches at the top has no kind
 ```
 
 ### 6.2 Ids in a fragment {#fragments-ids}
-
-<!-- surfex: deferred #129: the fragment-type behavior, compose, stack, masks and explain -->
 
 An **id** is `{kind, n}`: a kind of the type's `kinds/0` and a positive integer a store issued (spec/03 §2). It stands at a reference site — where the type takes a reference — and inside a use site's parts (§7).
 
@@ -206,13 +188,11 @@ An **id** is `{kind, n}`: a kind of the type's `kinds/0` and a positive integer 
 
 Without reading a use site's parts by name, a composite would export without its dependencies and import still pointing at its source store's entries (visualize#470); every other walk keeps the struct rule.
 
-```planned-test:fragments-refs-relocate
+```test:fragments-refs-relocate
 refs lists every id once, sorted, those inside use sites included; relocate rewrites every id through the table, use sites in place, and answers the ids it did not carry
 ```
 
 ### 6.3 `explain/2`: provenance {#fragments-explain}
-
-<!-- surfex: deferred #129: the fragment-type behavior, compose, stack, masks and explain -->
 
 `Fragment.explain(type, layers)` takes the layers of a stack — the list `stack/2` takes — and answers one entry per **leaf path** of the stacked result, ordered by path:
 
@@ -229,7 +209,7 @@ A **leaf** is a value the cascade does not descend into: the walk descends throu
 
 Two limits follow from the cascade's shape and are not defects. A value a higher layer discarded by replacing a whole `:union` entry or a whole identified element has no path in the result, so no entry; the layer that discarded it is named on the sibling leaves it did write. And `overrode` names layers that set a value **at the same path**: a higher element that adds a key the lower did not carry overrode nothing at that key.
 
-```planned-test:fragments-explain-leaves
+```test:fragments-explain-leaves
 explain answers one entry per leaf of the stacked result with its value, the layer that set it by name or position and the layers it overrode at that path; its values are exactly the stacked result's
 ```
 
