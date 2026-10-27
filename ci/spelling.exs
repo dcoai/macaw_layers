@@ -4,9 +4,10 @@
 #     elixir ci/spelling.exs          # report and exit 1 on any
 #     elixir ci/spelling.exs FILE...  # check only these files
 #
-# Exempt: what the language or a library spells its own way (Elixir's
+# Exempt: what the language or a standard spells its own way (Elixir's
 # `@behaviour`, and "behaviour" naming Elixir's feature: "OTP behaviours", "a
-# `TextMeasure` behaviour", "the Access behaviour"), third-party texts kept
+# `TextMeasure` behaviour", "the Access behaviour"; CSS's color keyword
+# `grey`, quoted or in backticks, which CSS spells both ways), third-party texts kept
 # verbatim (font licenses), binaries, and the word lists here and in this
 # check's own test.
 
@@ -45,8 +46,9 @@ defmodule Spelling do
   ]
 
   # Elixir's own spelling: the attribute, dependency modules, and the
-  # language feature by name.
-  @exempt_tokens ~r/@behaviour|\bBehaviour\b|(`[^`]+`|\bOTP|\bAccess|\bGenServer) behaviours?\b/
+  # language feature by name; and CSS's `grey` keyword, quoted as data or in
+  # backticks as a name, never in prose.
+  @exempt_tokens ~r/@behaviour|\bBehaviour\b|(`[^`]+`|\bOTP|\bAccess|\bGenServer) behaviours?\b|"grey"|`grey`/
 
   @doc """
   The pattern: a British word, or an -ise stem with a verb or noun ending,

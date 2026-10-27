@@ -21,13 +21,9 @@ Each section's tests are written as **`planned-test:` blocks** until its work it
 
 ## 1. Color {#themes-color}
 
-<!-- surfex: deferred #133: color -->
-
 ### 1.1 The struct and parsing {#themes-color-parse}
 
-<!-- surfex: deferred #133: color -->
-
-`%Macaw.Layers.Color{r, g, b, opacity}` with `r`, `g`, `b` in `[0, 255]` and `opacity` in `[0, 1]` (default `1.0`). Constructors round channels to integers; interpolation may leave them as floats.
+`%Macaw.Layers.Color{r, g, b, opacity}` with `r`, `g`, `b` in `[0, 255]` and `opacity` in `[0, 1]` (default `1.0`). `hsl`, `lab` and `hcl` round channels to integers; `rgb`, `oklab` and `oklch` clamp without rounding, and interpolation may leave them as floats.
 
 `parse/1` trims and lower-cases its argument and returns a color or `nil`. A non-binary argument returns `nil`. Accepted syntaxes:
 - **hex:** `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`. Short digits are doubled; an alpha byte becomes `opacity = a / 255`. Any other length after `#`, and a non-hex digit, return `nil` (visualize raised for a non-hex digit; a parser of untrusted text answers rather than raises);
@@ -37,13 +33,11 @@ Each section's tests are written as **`planned-test:` blocks** until its work it
 
 A string that matches none returns `nil`. `named/1` is the lower-case hex string for a keyword (case-insensitively) or `nil`; `named_colors/0` is the keyword list.
 
-```planned-test:color-parse-forms
+```test:color-parse-forms
 parse reads every hex length, rgb and rgba, hsl and hsla and the 148 keywords case-insensitively and trimmed; any other text, a bad digit and a non-binary are nil; named gives a keyword's hex
 ```
 
 ### 1.2 Constructors, conversions and manipulation {#themes-color-convert}
-
-<!-- surfex: deferred #133: color -->
 
 - **Constructors.**
   - `rgb/3,4` clamps channels to `[0, 255]` and opacity to `[0, 1]` without rounding.
@@ -80,13 +74,13 @@ parse reads every hex length, rgb and rgba, hsl and hsla and the 148 keywords ca
   - `oklab/3,4` and `oklch/3,4` build a color, **gamut-mapped** by CSS Color 4 §13.2: chroma is reduced in OKLCH by binary search until the clipped color is within a ΔEOK of 0.02, and a result too light or too dark becomes white or black.
   - `delta_eok/2` is the OKLab distance.
 
-```planned-test:color-conversions-exact
-lab of to_lab is the color and a gray has a and b zero; OKLab of the sRGB primaries matches the published values; contrast and luminance follow WCAG; each manipulation and interpolation gives d3-color's values; an out-of-gamut OKLCH is chroma-reduced to within 0.02
+```test:color-conversions-exact
+lab of to_lab is the color and a gray has a and b zero; OKLab of the sRGB primaries matches the published values; contrast and luminance follow WCAG; each manipulation and interpolation follows its formula; an out-of-gamut OKLCH is chroma-reduced at its lightness and hue to within 0.02, and one past either end is white or black
 ```
 
 ### 1.3 Typed colors and their transforms {#themes-color-typed}
 
-<!-- surfex: deferred #133: color -->
+<!-- surfex: deferred #134: typed colors are resolved against the theme -->
 
 A document names a color as a **typed value**, never a bare atom; the values are plain data, built by functions that check their arguments and compile nothing, and resolved against a theme (§3.1), so a theme swap changes every color derived from the theme's colors.
 
@@ -134,7 +128,7 @@ each builder makes its value and refuses an out-of-range number, a non-color ope
 
 ### 1.4 Resolution and CSS {#themes-color-resolve}
 
-<!-- surfex: deferred #133: color -->
+<!-- surfex: deferred #134: typed colors are resolved against the theme -->
 
 `Color.resolve(value, theme, mode)` resolves a color value in `:literal` or `:css` mode:
 - **Names and positions:** a name, a series position, a ramp position and a bare slot atom resolve as `Theme.resolve/3` resolves them (§3.1). A literal string is returned as written.
@@ -162,8 +156,6 @@ every transform's CSS, evaluated by an evaluator written from CSS Color 4 and 5,
 
 ### 1.5 Color-vision simulation {#themes-color-vision}
 
-<!-- surfex: deferred #133: color -->
-
 `Macaw.Layers.Color.Vision` simulates how a color reads to a person with one of the three dichromacies, so a palette can be judged by eye for the readers it would fail; it is used for judging only. The model is **Machado, Oliveira and Fernandes (2009)** at severity 1.0, chosen for one cheap matrix per deficiency that grades to the anomalous trichromacies with no new code path (visualize D-139). A color is:
 1. decoded from sRGB to linear RGB, by `c / 12.92` for `c ≤ 0.04045` and `((c + 0.055) / 1.055)^2.4` otherwise;
 2. multiplied by the deficiency's matrix;
@@ -184,7 +176,7 @@ Each row sums to 1, so every gray is its own simulation.
 | `Vision.simulate/2` | the color as the deficiency sees it, opacity kept; `:none` is the color; any other value raises `ArgumentError` |
 | `Vision.recolor/2` | every `#rrggbb` and `#rgb` literal in a text replaced by its simulation as `#rrggbb`; `url(#id)` is left alone |
 
-```planned-test:color-vision-machado
+```test:color-vision-machado
 each deficiency's matrix is Machado's at severity 1, every gray is its own simulation, opacity is kept, none is the identity, and recolor replaces hex literals but not url references
 ```
 
