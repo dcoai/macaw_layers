@@ -7,6 +7,7 @@ Macaw's document layer ([spec/00](spec/00-overview.md)): the document kernel eve
 | `Macaw.Layers.Names` | names a document declares: strings, never atoms made from data ([spec/01 §1](spec/01-kernel.md#kernel-names)) |
 | `Macaw.Layers.Vocabulary` | closed vocabularies looked up by spelling ([spec/01 §2](spec/01-kernel.md#kernel-vocabulary)) |
 | `Macaw.Layers.Fault` | the fault `{path, reason}`, its order, and the one formatter ([spec/01 §3](spec/01-kernel.md#kernel-faults)) |
+| `Macaw.Layers.Version` | one version line per document type, and stepwise migration ([spec/01 §4](spec/01-kernel.md#kernel-versions)) |
 
 No runtime dependencies. Released by git tag:
 

@@ -111,19 +111,46 @@ a reason the kernel does not word goes to the words: function, a {:type, t} with
 
 ## 4. Version lines and migration {#kernel-versions}
 
-<!-- surfex: deferred #96: the version line and migration are built in their own work item -->
-
-**Each document type has its own version line,** a positive integer that starts at 1 and rises by one with each change that needs a migration. A document carries its version as the stamp `"$version"`, at the top of its map or JSON form. Two types' lines are independent: a new step for one moves no other.
+**Each document type has its own version line,** a positive integer that starts at 1 and rises by one with each change that needs a migration. A document carries its version as the stamp `"$version"`: a string key at the top of the document, in the map form and the JSON form alike. Two types' lines are independent: a new step for one moves no other.
 
 A document type implements the behavior `Macaw.Layers.Version`:
 - `current/0`, the type's current version;
-- `step/2`, the pure migration of a document at one version to the next, `step(document, from)`, returning the document at `from + 1`. It may report faults, as `{:error, faults}`.
+- `step/2`, the pure migration of a document at one version to the next, `step(document, from)`, returning `{:ok, document}` at `from + 1`, or `{:error, faults}`. A step need not write the new stamp: the kernel does.
 
-The kernel reads a document's version before anything else of it:
+`Macaw.Layers.Version.check/2` reads a document's version before anything else of it:
 - **A document with no stamp reads as current.**
-- **A stamp above the type's current version is refused by name** as `{[], {:newer_schema, needs, this}}`, where *needs* is the stamp and *this* the reader's current version, before any other part of the value is read. A newer document's other faults are not reported: the reader can't know what they mean.
+- **A stamp above the type's current version is refused by name** as `{[], {:newer_schema, needs, this}}`, where *needs* is the stamp and *this* the type's current version. Nothing else of the document is read, and its other faults are not reported: the reader can't know what they mean.
 - A stamp that is not a positive integer is `{["$version"], {:type, :pos_integer}}`.
-- **A stamp below current is migrated step by step,** each `step/2` in turn from the stamp to current, purely: no I/O, no clock, no process. The result carries the current stamp.
+
+`Macaw.Layers.Version.migrate/2` brings a document to the type's current version:
+- a document at the current version, or with no stamp, is returned as it is, carrying the current stamp;
+- **an older one is migrated step by step,** each `step/2` in turn from the stamp to current, purely: no I/O, no clock, no process. The result carries the current stamp;
+- a step's faults stop the migration and are returned, ordered by path;
+- a newer or malformed stamp is refused by `check/2` before any step runs.
+
+```test:versions-unstamped
+a document with no stamp checks as the type's current version, and migrates unchanged but for the current stamp
+```
+
+```test:versions-newer
+a stamp above current is {[], {:newer_schema, needs, this}} alone, before any step runs and whatever else the document holds; a stamp of 0, -1, 1.0, "2" or nil is {["$version"], {:type, :pos_integer}}
+```
+
+```test:versions-steps
+a document at version 1 of a type at version 3 runs step 1 then step 2, in order, each seeing the stamp it migrates from, and ends at version 3; one at the current version runs no step
+```
+
+```test:versions-lines
+two types with their own lines migrate independently: a document of one is read against its own current version, never the other's
+```
+
+```test:versions-step-faults
+a step's faults stop the migration: no later step runs, and the faults come back ordered by path
+```
+
+```test:versions-pure
+over generated documents and versions, migrating gives the same result twice, and migrating a migrated document changes nothing
+```
 
 ## 5. The gates {#kernel-gates}
 
