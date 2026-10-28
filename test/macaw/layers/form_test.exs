@@ -1,9 +1,10 @@
 defmodule Macaw.Layers.FormTest do
   # The atom table is the node's: nothing else may run while it is counted.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   use ExUnitProperties
 
   alias Macaw.Layers.{Form, Tags, Vocabulary}
+  alias Macaw.Layers.Test.Atoms
 
   doctest Tags
 
@@ -156,9 +157,8 @@ defmodule Macaw.Layers.FormTest do
                 "blocks" => [nil, true, 3, [%{"$atom" => "text"}]]
               }}
 
-    fresh = "zz#{System.unique_integer([:positive])}a"
-    Form.from_map(%{"kind" => %{"$atom" => "warm"}}, Card)
-    before = :erlang.system_info(:atom_count)
+    # Checked on the document's own spelling, never the node's atom count (macaw_layers#1).
+    fresh = Atoms.fresh()
 
     assert Form.from_map(
              %{"kind" => %{"$atom" => fresh}, "at" => %{"$time" => "yesterday"}},
@@ -170,7 +170,7 @@ defmodule Macaw.Layers.FormTest do
                 {[:kind], {:enum, [:chart, :table, :text]}}
               ]}
 
-    assert :erlang.system_info(:atom_count) == before
+    assert Atoms.made([fresh]) == []
 
     # A time with an offset is not UTC, so it is not the kernel's $time.
     assert Form.from_map(%{"at" => %{"$time" => "2026-10-27T12:00:00+02:00"}}, Card) ==

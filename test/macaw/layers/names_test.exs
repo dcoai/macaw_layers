@@ -1,10 +1,12 @@
 defmodule Macaw.Layers.NamesTest do
-  # The atom table is the node's: nothing else may run while it is counted.
-  use ExUnit.Case, async: false
+  # "Makes no atom" is checked on the input's own names, never the node's atom count
+  # (macaw_layers#1).
+  use ExUnit.Case, async: true
   use ExUnitProperties
 
   import Macaw.Layers.Names, only: [is_name: 1]
   alias Macaw.Layers.Names
+  alias Macaw.Layers.Test.Atoms
 
   doctest Names
 
@@ -13,15 +15,16 @@ defmodule Macaw.Layers.NamesTest do
 
   @tag verifies: "names-name"
   test "an atom reads as its spelling, a string as it is, anything else untouched" do
-    before = :erlang.system_info(:atom_count)
+    fresh = Atoms.fresh()
 
     assert Names.name(:sales) == "sales"
     assert Names.name("sales") == "sales"
+    assert Names.name(fresh) == fresh
 
     for other <- [nil, true, false, 3, {:id, 1}, [:a]],
         do: assert(Names.name(other) == other)
 
-    assert :erlang.system_info(:atom_count) == before
+    assert Atoms.made([fresh]) == []
   end
 
   @tag verifies: "names-predicate"
@@ -93,12 +96,8 @@ defmodule Macaw.Layers.NamesTest do
 
   @tag verifies: "kernel-names"
   test "no Names function makes an atom from a document's string" do
-    fresh = for _ <- 1..500, do: "zz#{System.unique_integer([:positive])}n"
+    fresh = for _ <- 1..500, do: Atoms.fresh()
     map = %{"a" => 1, b: 2}
-    # Warm up: load every module the calls reach.
-    Names.key(map, "warm")
-
-    before = :erlang.system_info(:atom_count)
 
     for s <- fresh do
       assert Names.name(s) == s
@@ -110,6 +109,6 @@ defmodule Macaw.Layers.NamesTest do
       assert Names.keys(%{s => 1}) == %{s => 1}
     end
 
-    assert :erlang.system_info(:atom_count) == before
+    assert Atoms.made(fresh) == []
   end
 end

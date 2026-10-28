@@ -64,7 +64,7 @@ a table of [:title, :caption] fetches "title" as :title, gives :error for "foote
 ```
 
 ```test:vocabulary-no-atoms
-reading 2 000 fresh strings through fetch/2 and read/2 leaves the node's atom count unchanged, and read/2 returns each string as it was
+reading 2 000 fresh strings through fetch/2 and read/2 makes none of them an atom, and read/2 returns each string as it was
 ```
 
 ## 3. Faults {#kernel-faults}
