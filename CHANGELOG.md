@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.2.1 (2026-10-28)
 
+- Spec and README links to the public home, `github.com/dcoai/macaw_layers`, and the install snippet from Hex (macaw#171, #173).
 - Package metadata for Hex: the public home, the changelog link, the files shipped, and docs with `ex_doc` (macaw_compose#155).
 
 ## v0.2.0 (2026-10-27)

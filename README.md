@@ -21,10 +21,10 @@ Macaw's document layer ([spec/00](https://github.com/dcoai/macaw_layers/blob/mai
 | `Macaw.Layers.Theme`, `Macaw.Layers.Theme.Extension` | the theme: the color table, ramps and roles, the style palette, contracts and floors, resolution, the ink, extensions and the profile ([spec/04 §2–§4](https://github.com/dcoai/macaw_layers/blob/main/spec/04-themes.md#themes-theme)) |
 | `Macaw.Layers.Theme.Document`, `Macaw.Layers.Theme.Sheet` | a theme as a document, and compiled to a stylesheet of `--mw-` custom properties ([spec/04 §5–§6](https://github.com/dcoai/macaw_layers/blob/main/spec/04-themes.md#themes-document)) |
 
-No runtime dependencies. Released by git tag:
+No runtime dependencies. From Hex:
 
 ```elixir
-{:macaw_layers, git: "git@gitlab.conet.yarina.org:dco-tek/macaw_layers.git", tag: "v0.2.0"}
+{:macaw_layers, "~> 0.2.1"}
 ```
 
 Part of [Macaw](https://github.com/dcoai/macaw).
