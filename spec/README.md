@@ -1,6 +1,6 @@
 # macaw_layers specification
 
-`macaw_layers` is Macaw's document layer: the document kernel every declarative value is read through, fragments and stacking, stores, and themes. Each Macaw component has its own spec in its own repository (dco-tek/macaw_compose#61); this is `macaw_layers`'s. The family's overview, vocabulary and open questions, and the specs of components without a repository of their own yet, are in [macaw_compose's spec](https://gitlab.conet.yarina.org/dco-tek/macaw_compose/-/blob/main/spec/README.md).
+`macaw_layers` is Macaw's document layer: the document kernel every declarative value is read through, fragments and stacking, stores, and themes. Each Macaw component has its own spec in its own repository (dco-tek/macaw_compose#61); this is `macaw_layers`'s. The family's overview, vocabulary and open questions, and the specs of components without a repository of their own yet, are in [macaw_compose's spec](https://github.com/dcoai/macaw/blob/main/spec/README.md).
 
 | File | Covers | Status |
 |---|---|---|

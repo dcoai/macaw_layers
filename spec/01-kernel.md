@@ -2,9 +2,9 @@
 
 <!-- surfex: class orientation -->
 
-Every declarative value Macaw reads is a **document**: pages, surfaces, templates, layers, themes, visualize designs, component settings and records ([macaw_compose 01](https://gitlab.conet.yarina.org/dco-tek/macaw_compose/-/blob/main/spec/01-vocabulary.md#vocab-documents)). One kernel reads them all. It knows nothing of any document type: each type brings its own keys, schema, migration steps, tags and wording, and the kernel supplies everything they share.
+Every declarative value Macaw reads is a **document**: pages, surfaces, templates, layers, themes, visualize designs, component settings and records ([macaw_compose 01](https://github.com/dcoai/macaw/blob/main/spec/01-vocabulary.md#vocab-documents)). One kernel reads them all. It knows nothing of any document type: each type brings its own keys, schema, migration steps, tags and wording, and the kernel supplies everything they share.
 
-The kernel generalizes what visualize built for its designs, fragments, boards, snapshots and bundles. That code is spread over `Visualize.Chart.Migration`, `Chart.Limits`, `Chart.Codec.Tags`, `Chart.Codec`, `Chart.Validator`, `Chart.Names` and `Visualize.Vocabulary`. What is generic in it moves here; what is chart-specific stays in visualize as an implementer of the kernel's behaviors ([macaw_compose 00 §5](https://gitlab.conet.yarina.org/dco-tek/macaw_compose/-/blob/main/spec/00-overview.md#overview-order), step 2).
+The kernel generalizes what visualize built for its designs, fragments, boards, snapshots and bundles. That code is spread over `Visualize.Chart.Migration`, `Chart.Limits`, `Chart.Codec.Tags`, `Chart.Codec`, `Chart.Validator`, `Chart.Names` and `Visualize.Vocabulary`. What is generic in it moves here; what is chart-specific stays in visualize as an implementer of the kernel's behaviors ([macaw_compose 00 §5](https://github.com/dcoai/macaw/blob/main/spec/00-overview.md#overview-order), step 2).
 
 | Module | What it is | § |
 |---|---|---|
@@ -248,7 +248,7 @@ A document type implements the behavior `Macaw.Layers.Form`:
   - `read/2`, which holds a parsed document to the table: a renamed tag is read under its new name, and an unknown or retired tag is refused at the path of its object, `{:unknown_tag, tag}` or `{:retired_tag, tag, why}`, never read as data;
   - **escaping:** a data key that starts with `$` is written with one more `$` and read back with one fewer, so data may hold any key, and `$$` never names a tag. The stamp `"$version"` at a document's root is not data and is not escaped.
 - A live tag the type writes is read by its `decode_value/2`; one it doesn't read is `{path, {:unknown_tag, tag}}`.
-- **Documents hold no functions, credentials or source configuration.** A function, a PID, a reference, a port, a tuple or a struct the type doesn't write has no form, and is refused at its path as `{:type, :term}`. Credentials and source configuration are the host's; a document names sources and state by name only ([macaw_compose 01](https://gitlab.conet.yarina.org/dco-tek/macaw_compose/-/blob/main/spec/01-vocabulary.md#vocab-data)).
+- **Documents hold no functions, credentials or source configuration.** A function, a PID, a reference, a port, a tuple or a struct the type doesn't write has no form, and is refused at its path as `{:type, :term}`. Credentials and source configuration are the host's; a document names sources and state by name only ([macaw_compose 01](https://github.com/dcoai/macaw/blob/main/spec/01-vocabulary.md#vocab-data)).
 
 ```test:forms-round-trip
 over generated valid values (type keys, string names, atoms of the type, UTC times, nesting, $-keys), from_map(to_map(v)) is {:ok, v} and from_json(to_json(v)) reads it back; to_map(from_map(m)) is {:ok, m} for the map forms written
