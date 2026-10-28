@@ -28,7 +28,7 @@ Macaw's document layer ([spec/00](https://github.com/dcoai/macaw_layers/blob/mai
 No runtime dependencies. From Hex:
 
 ```elixir
-{:macaw_layers, "~> 0.2.2"}
+{:macaw_layers, "~> 0.2.3"}
 ```
 
 Part of [Macaw](https://github.com/dcoai/macaw).
