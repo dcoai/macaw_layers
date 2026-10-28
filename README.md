@@ -1,5 +1,7 @@
 # macaw_layers
 
+> **This software is a very early release, and not ready for general use.**
+
 Public home: [github.com/dcoai/macaw_layers](https://github.com/dcoai/macaw_layers) · Docs: [hexdocs.pm](https://hexdocs.pm/macaw_layers)
 
 Macaw's document layer ([spec/00](https://github.com/dcoai/macaw_layers/blob/main/spec/00-overview.md)): the document kernel every declarative value is read through, fragments and stacking, stores and portable bundles, and colors and themes (dco-tek/macaw_compose#56, #94).
@@ -24,7 +26,7 @@ Macaw's document layer ([spec/00](https://github.com/dcoai/macaw_layers/blob/mai
 No runtime dependencies. From Hex:
 
 ```elixir
-{:macaw_layers, "~> 0.2.1"}
+{:macaw_layers, "~> 0.2.2"}
 ```
 
 Part of [Macaw](https://github.com/dcoai/macaw).
