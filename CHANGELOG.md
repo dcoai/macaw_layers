@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The macaw logo in the docs and the README (macaw#175).
+
 ## v0.2.2 (2026-10-28)
 
 - The README opens with the early-release notice (macaw#174).
