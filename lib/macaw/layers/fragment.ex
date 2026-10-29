@@ -87,6 +87,20 @@ defmodule Macaw.Layers.Fragment do
   """
   @callback under(kind(), lower :: map(), higher :: map()) :: map()
 
+  @doc """
+  One resolved site's contribution as the composite holding it shapes it, before it is
+  placed (spec/02 §8.1): the composite node carries keys of the type's own besides `uses`
+  and `vars` (visualize's `defaults`), and this is where they reach the sites.
+  """
+  @callback scope(composite :: map(), contribution :: map(), key :: String.t() | nil) :: map()
+
+  @doc """
+  A keyed site's contribution of no kind (a whole document, a multi-key fragment) as the
+  layer that declares it under the site's key (spec/02 §8.2). Without it, such a
+  contribution is its own layer.
+  """
+  @callback place_whole(contribution :: map(), key :: String.t()) :: {:ok, map()}
+
   @doc "Every id left at a reference site of a flattened document resolved through `fetch`."
   @callback inline(map(), (id() -> {:ok, map()} | :error)) :: {map(), [{id(), list()}]}
 
@@ -99,6 +113,8 @@ defmodule Macaw.Layers.Fragment do
                       merge: 3,
                       normalize: 4,
                       under: 3,
+                      scope: 3,
+                      place_whole: 2,
                       inline: 2,
                       decompose: 1
 

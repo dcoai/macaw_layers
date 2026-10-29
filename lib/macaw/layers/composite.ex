@@ -68,7 +68,9 @@ defmodule Macaw.Layers.Composite do
     end)
     |> case do
       {:ok, resolved, missing} ->
-        {layers, keyless} = resolved |> Enum.reverse() |> placed(type)
+        {layers, keyless} =
+          resolved |> Enum.reverse() |> Enum.map(&scoped(type, composite, &1)) |> placed(type)
+
         {:ok, Fragment.stack(type, base ++ layers), %{missing: missing, keyless: keyless}}
 
       {:error, _} = error ->
@@ -78,6 +80,13 @@ defmodule Macaw.Layers.Composite do
 
   defp flatten(_type, fragment, _fetch, _trail) when is_map(fragment),
     do: {:ok, fragment, %{missing: [], keyless: []}}
+
+  # A site's contribution as the composite shapes it, through the type's `scope/3`.
+  defp scoped(type, composite, {use, contribution}) do
+    if Callback.exported?(type, :scope, 3),
+      do: {use, type.scope(composite, contribution, use.key)},
+      else: {use, contribution}
+  end
 
   # The composite's own vars are the lowest layer, under the type's own `vars` key, when
   # the type declares one and the composite has any.
@@ -145,14 +154,22 @@ defmodule Macaw.Layers.Composite do
   @doc """
   One site's contribution as the layer that declares it where a whole document keeps its
   kind (spec/02 §8.2), through the type's `place/3`, or `:keyless`. A contribution of no
-  kind (a whole document, an empty site) is its own layer.
+  kind (a whole document, an empty site) is placed under a site's key by the type's
+  `place_whole/2`, where it has one, and is otherwise its own layer.
   """
   @spec place(module(), map(), String.t() | nil) :: {:ok, map()} | :keyless
   def place(type, contribution, key) do
     case Fragment.kind(type, contribution) do
+      nil when key != nil -> whole(type, contribution, key)
       nil -> {:ok, contribution}
       kind -> type.place(kind, contribution, key)
     end
+  end
+
+  defp whole(type, contribution, key) do
+    if Callback.exported?(type, :place_whole, 2),
+      do: type.place_whole(contribution, key),
+      else: {:ok, contribution}
   end
 
   @doc """

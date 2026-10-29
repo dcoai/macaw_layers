@@ -30,6 +30,8 @@ A **fragment** is a document of a type, or any part of one: a map with the type'
 | `merge(rule_name, lower, higher) :: term()` *(optional)* | the type's own merge of a key whose rule is `{:type, rule_name}` (§2) |
 | `normalize(kind, key, lower, higher) :: {lower, higher}` *(optional)* | the two values of a key both fragments hold, as they merge: a shorthand on one side expanded to the part the other gives (§3.3) |
 | `under(kind, lower, higher) :: lower` *(optional)* | what of a lower node of `kind` the higher one, merging over it, keeps (§3.3) |
+| `scope(composite, contribution, key) :: contribution` *(optional)* | one resolved site's contribution as the composite node holding it shapes it, before it is placed (§8.1) |
+| `place_whole(contribution, key) :: {:ok, layer}` *(optional)* | a keyed site's contribution of no kind, placed under the site's key (§8.2) |
 | `inline(document, fetch) :: {document, [{id, path}]}` *(optional)* | every id left at a reference site of a flattened document resolved through `fetch`, and the ids that were missing (§8.1) |
 | `decompose(document) :: [Use.t()]` *(optional)* | a whole document as inline sites, one kind each (§8.2) |
 
@@ -286,6 +288,8 @@ A **composite** is a fragment whose content is a list of use sites and its own v
 }}
 ```
 
+**The composite node holds `uses`, `vars`, and the keys the type declares for its `:composite` kind** (`key(:composite, k)`; visualize's `defaults`), which the type's reader validates like any node's. The kernel reads only `uses` and `vars`; the type's own keys reach the sites through `scope/3` (§8.1).
+
 ```test:fragments-composite-shape
 a composite is exactly one key, composite, holding a list of uses; anything else is not one and flattens to itself, and a composite of no sites flattens to the empty map
 ```
@@ -296,6 +300,12 @@ a composite is exactly one key, composite, holding a list of uses; anything else
 
 It answers `{:ok, document, %{missing: [{id, at}], keyless: [use_id]}}` — every reference that showed through, `at` the use id of the site that named it or, for a reference inside the document, its path there, and every name-keyed site with no key — or `{:error, {:cycle, chain}}`. **Composites nest**: a site may reference a composite, which is flattened first, and then each of *its* sites placed. A composite that reaches itself through any chain of uses is refused at the site that closed the loop, `chain` the ids from the outer composite to it. The composite's own `vars` declarations are stacked into the result's variable declarations, the composite's under the document's.
 
+**A composite's own keys reach its sites through the type.** Each resolved site's contribution passes through the type's `scope(composite, contribution, key)`, where it has one, before it is placed: visualize puts a composite's `defaults` under what each site places, so a gauge's needle and arc inherit the gauge's look. A type without it places the contributions as they resolved.
+
+```test:fragments-composite-scope
+a composite's own keys reach each site through scope/3 before placing, a site that says its own keeps them, and a type without scope/3 places the sites as they resolved
+```
+
 **Resolution is one rule.** Once the sites are placed, every id left at a reference site *inside* the document is resolved through the same `fetch` by the type's `inline/2` callback, where the type has one (visualize inlines a style body and declares a referenced scale or source under a synthesized key, `"scale:4"`), so what leaves `flatten` carries no ids and nothing below it needs a store. An id the store no longer holds is a mask at its site and is reported in `missing`.
 
 ```test:fragments-flatten-nested
@@ -304,7 +314,7 @@ flatten resolves every site in order, places each by its kind under its key, sta
 
 ### 8.2 Placing a site by its kind {#fragments-place}
 
-A site's contribution — its body after `ref → local → mask → bind` — is placed by the kind it derives to (§6.1), through the type's `place(kind, body, key)`: `{:ok, layer}`, the fragment that declares the body where a whole document keeps its kind, or `:keyless` for a name-keyed kind whose site has no key. A whole document (a host-seeded layer, an imported document) is its own layer. **Within a kind, the same operation:** a composite whose sites are all one wrapped kind and all `:keyless` — a stack of styles, none named — is a composer of that kind: it stacks its bodies as bodies, and its result is a fragment of that kind for the site that holds it to place under that site's key. A name-keyed kind is exactly one whose `place/3` answers `:keyless` without a key, so the rule needs nothing more from the type. visualize's placements are its own (a style under `styles[key]`, a mark appended under `marks`, a frame cascading into `frames`, a composite under a key landing its frames as that key), and a Macaw type declares its own the same way.
+A site's contribution — its body after `ref → local → mask → bind` — is placed by the kind it derives to (§6.1), through the type's `place(kind, body, key)`: `{:ok, layer}`, the fragment that declares the body where a whole document keeps its kind, or `:keyless` for a name-keyed kind whose site has no key. A contribution of no kind (a whole document, a fragment of several keys) is placed under a site's key by the type's `place_whole(contribution, key)`, where the type has one (visualize lands a composite's one frame as the site's key, so a gauge placed under `"gauge"` draws in the frame `"gauge"`); without a key, or without the callback, it is its own layer (a host-seeded layer, an imported document). **Within a kind, the same operation:** a composite whose sites are all one wrapped kind and all `:keyless` — a stack of styles, none named — is a composer of that kind: it stacks its bodies as bodies, and its result is a fragment of that kind for the site that holds it to place under that site's key. A name-keyed kind is exactly one whose `place/3` answers `:keyless` without a key, so the rule needs nothing more from the type. visualize's placements are its own (a style under `styles[key]`, a mark appended under `marks`, a frame cascading into `frames`, a composite under a key landing its frames as that key), and a Macaw type declares its own the same way.
 
 `Composite.decompose(type, document)` is the inverse: a whole document as inline sites, one kind each, keyed where the document keyed them, through the type's optional `decompose/1`; `flatten` of the result is the document again.
 
@@ -317,6 +327,10 @@ A site's contribution — its body after `ref → local → mask → bind` — i
 
 ```test:fragments-place-kind
 place puts a contribution where its kind lands through the type, under the site's key; a name-keyed kind without a key is keyless; a contribution of no kind is its own layer
+```
+
+```test:fragments-place-whole
+a keyed site's contribution of no kind is placed by place_whole/2 under the site's key; without a key, or for a type without it, the contribution is its own layer
 ```
 
 ```test:fragments-decompose-inverse
