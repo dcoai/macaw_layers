@@ -243,14 +243,15 @@ unknown_keys/3 refuses each key not among the known ones at its own key under th
 - The **JSON form** is the map form encoded, stamped with the type's version.
 
 `Macaw.Layers.Form` is the JSON adapter:
-- **The codec,** `to_map/2` and `from_map/2`, converts between the value and the map form, exact inverses with no gates and no validation: for a value with a form, `from_map(to_map(v)) == {:ok, v}`; for a map form `to_map/2` wrote, `to_map(from_map(m)) == {:ok, m}`. `encode_term/2` writes one term's map form, `{:ok, form}` or its faults by path, for a type writing a payload of its own tag whose keys are the tag's, not data (spec/02 §9).
+- **The codec,** `to_map/2` and `from_map/2`, converts between the value and the map form, exact inverses with no gates and no validation: for a value with a form, `from_map(to_map(v)) == {:ok, v}`; for a map form `to_map/2` wrote, `to_map(from_map(m)) == {:ok, m}`. `encode_term/3` (`encode_term(term, type, at \\ nil)`) writes one term's map form, `{:ok, form}` or its faults by path from the term, for a type writing a payload of its own tag whose keys are the tag's, not data (spec/02 §9); `at` is the term's place below the tag, as below.
 - **Writing,** `to_json/2`: the value's map form, encoded, with the stamp `"$version"` set to the type's current version where the type has a version line (it exports `current/0`, found as §9 says) and no stamp where it has none. A value with no form is refused here, at its path, though `Document.check/2` holds it valid: the adapter's limits on what it can write are not the value's.
 - **Reading,** `gates/3` and `read/3` (§5): a JSON document, or its decoded map form, through the gates to the map form at the current version, and from it to the value, judged. `read(to_json(v))` is `{:ok, v}` for a valid value with a form.
 
 A document type implements the behavior `Macaw.Layers.Form`:
 - `tags/0`, its tag table;
 - `keys/0`, the keys it reads as atoms, and `atoms/0`, the atoms a `$atom` may spell, each a closed vocabulary (§2), so no atom is ever made from a document;
-- optionally, `encode_value/1` and `decode_value/2`, for values of its own (a struct, a tuple), written under its own live tags.
+- optionally, `encode_value/1` and `decode_value/2`, for values of its own (a struct, a tuple), written under its own live tags;
+- optionally, `name_map?(path) :: boolean`, whether the map at `path` is a **name map**, whose keys are names, never the type's keys. `path` is from the document's root as the value holds it: atom keys, string names and list indexes. A fragment type answers with `Macaw.Layers.Fragment.name_map?/2`, from its specs ([02 §9](02-fragments.md#fragments-forms)). A type without it has no name maps: every map is a node.
 
 **The kernel's terms:**
 
@@ -263,6 +264,7 @@ A document type implements the behavior `Macaw.Layers.Form`:
 | a map | an object, keyed as below |
 
 - **Keys are decoded against the type's tables.** A key the type's `keys/0` has becomes the atom; any other stays a string, at its own spelling, for the type's `validate/1` to refuse (§5). In the value, an atom key must be one of the type's keys (else `:unknown_key` when written), and a string key must not be spelled like one (`:key_spelling`), since it would read back as the key. A key that is neither an atom nor a string is `{:type, :name}`.
+- **A name map's keys are names, whatever their spelling.** At a map the type's `name_map?/1` says is a name map, a string key is written as the name it is (escaped as below when it starts with `$`) and read back as that string, never as a type key, so a style named `"fill"` stays `"fill"`; no `:key_spelling` applies. Names are strings (§1), so an atom key there, a type key included, is `{:type, :name}` when written. Every other map is a node, keyed as the previous rule says. **Below a tag a map's place is its place in the payload:** `name_map?/1` is asked `{:tag, tag}` followed by the map's path within the payload (`[{:tag, "$use"}, "local", :styles]`), never the path from the document's root, so a payload reads alike wherever its tag stands. A type writing a payload part with `encode_term/3` gives its place as `at` (`[{:tag, "$use"}, "local"]`), so writer and reader ask the same question; with no `at` every map in the term is a node, as it reads where the type answers `false`.
 - **Values JSON can't express use one table of `$` tags.** A tag is a one-key object whose key starts with a single `$`. Each type declares its table with `use Macaw.Layers.Tags`, listing its live, retired and renamed tags; the kernel's `$atom`, `$time` and `$version` are live in every table. `Macaw.Layers.Tags` supplies:
   - `tag/2`, a macro in the table's module that refuses at compile time a literal tag the table does not list as live, so nothing is written that a reader would refuse;
   - `read/2`, which holds a parsed document to the table: a renamed tag is read under its new name, and an unknown or retired tag is refused at the path of its object, `{:unknown_tag, tag}` or `{:retired_tag, tag, why}`, never read as data;
@@ -284,6 +286,10 @@ each kernel term has the map form the table gives, an atom spelling outside atom
 
 ```test:forms-keys
 a type key reads as its atom and any other key stays a string; writing an atom key the type lacks is :unknown_key, a string spelled like a type key is :key_spelling, and an integer key is {:type, :name}, each at its path
+```
+
+```test:forms-name-maps
+at a name map a name spelled like a type key, or starting with $, round-trips through the map and JSON forms as its string, and an atom key there is {:type, :name}; at a node a string spelled like a type key is still :key_spelling; below a tag a map is asked at its place in the payload, as encode_term/3 writes it at; a type without name_map?/1 reads and writes every map as a node; over generated values with such names at name positions, from_map(to_map(v)) is {:ok, v}
 ```
 
 ```test:forms-no-functions

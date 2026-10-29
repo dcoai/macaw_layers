@@ -467,12 +467,14 @@ A theme is stored and shipped as a value, so it is a **document** (spec/01): `Ma
 
 | Form | What |
 |---|---|
-| value | `%{version: v, theme: node}` (`to_map/1`); the store's fragment `%{theme: node}` (`fragment/1`), a library entry of kind `:theme`, reads as the same document |
+| value | `%{version: v, theme: node}` (`to_map/1`); the store's fragment `%{theme: node}` (`fragment/1`), a library entry of kind `:theme`, reads as the same document; every name in `ramps`, `colors`, `styles` and `defaults` a string |
 | JSON | `{"$version": v, "theme": {…}}` (`to_json/1`, through the JSON adapter, `Form.to_json/2`), each color value a tag: `{"$color": name}`, `{"$series": i}`, `{"$ramp": [name, t]}`, each transform by its name with `[color, number]` (`{"$lighten": [C, 0.3]}`), `{"$blend": [C, …]}`, `{"$contrast": "under" \| C}`; pinned steps as `{"$steps": [[n, color], …]}` |
 
 `from_map(document, opts)` takes `extensions:`, the extensions the host registers, which the theme read carries and its contracts hold; `from_json(json, opts)` takes `extensions:` and `limits:`, the JSON adapter's (spec/01 §5). A style series a document spells beyond the built-in ten reads as its name up to `style_64`, and a `series` longer than 64 is `{:limit, :series, 64, n}`.
 
 **Fragment rules:** `ramps`, `colors`, `styles` and `defaults` are `:union` name maps, and every other key is `:override`, so a theme stacks over a built-in as `new/1` merges (§2.5).
+
+**Names are strings.** The four are name maps (`name_map?/1` by `Fragment.name_map?/2`, spec/01 §6), whose names are strings (spec/01 §1). `node/1`, and so `fragment/1`, `to_map/1` and `to_json/1`, spells every name in them as its string, the library's own included, so a theme fragment is written by the JSON adapter like any other (`Form.to_map/2`, a bundle's entry). Reading has one path: `from_map/2` and `from_json/2` read a name spelled like one of the library's (`Macaw.Layers.Theme.Words`) as its atom, the value's form (§2.1), and any other as its string, a style name then as the palette's (a style series, an extension's name). A name given as both its atom and its string is the atom's. A node built in Elixir with atom names reads as the same theme; `Form.to_map/2` refuses it, `{:type, :name}` at each atom name.
 
 **Reading.** A theme document is judged on its value, never on a form of it (spec/01 §5):
 1. **the value's way in:** `from_map/2` checks the value's `version` against the line (`{[], {:newer_schema, needs, this}}`, or `{["$version"], {:type, :pos_integer}}`), nothing of a newer document judged, and writes and reads no form; `from_json/2` reads the JSON form through the JSON adapter (`Form.read/3`): the limits, the version, the migration, the recount, then the value from the map form;
@@ -491,11 +493,11 @@ A value no form can write but the theme takes, such as root defaults built under
 `from_map(to_map(t))` and `from_json(to_json(t))` are `{:ok, t}` for every theme `new/1` builds, the built-ins included.
 
 ```test:themes-document-forms
-a theme round-trips through its value and JSON form, the built-ins and host themes with pinned steps included; a newer stamp, a broken contract at its path, a variable, an unknown theme name and an unknown key are refused; a theme fragment stacks over a built-in
+a theme round-trips through its value and JSON form, the built-ins and host themes with pinned steps included, its name maps holding every name as a string and read back as the library's atoms, and a theme entry of a store through a bundle's forms and import; a newer stamp, a broken contract at its path, a variable, an unknown theme name and an unknown key are refused; a theme fragment stacks over a built-in
 ```
 
 ```test:themes-document-value
-from_map/2 judges a theme document's value with no form written or read: a node Form.to_map/2 refuses (an atom key outside the vocabulary) builds its theme, no limit applies to a value, and from_json/2 of the JSON form gives what from_map/2 gives of the value
+from_map/2 judges a theme document's value with no form written or read: a node Form.to_map/2 refuses (an atom name in a name map) builds its theme, no limit applies to a value, and from_json/2 of the JSON form gives what from_map/2 gives of the value
 ```
 
 ## 6. Delivery {#themes-delivery}

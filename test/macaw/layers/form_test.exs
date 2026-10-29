@@ -216,6 +216,18 @@ defmodule Macaw.Layers.FormTest do
               ]}
   end
 
+  @tag verifies: "forms-name-maps"
+  test "a type without name_map?/1 has no name maps: every map is a node, at any depth" do
+    refute Macaw.Layers.Callback.exported?(Card, :name_map?, 1)
+
+    assert Form.from_map(%{"blocks" => %{"n" => %{"title" => 1, "$$size" => 2}}}, Card) ==
+             {:ok, %{blocks: %{"n" => %{:title => 1, "$size" => 2}}}}
+
+    assert Form.to_map(%{blocks: %{"n" => %{"title" => 1}, "size" => 2}}, Card) ==
+             {:error,
+              [{[:blocks, "n", "title"], :key_spelling}, {[:blocks, "size"], :key_spelling}]}
+  end
+
   @tag verifies: "forms-no-functions"
   test "values with no document form are refused at their path, all of them" do
     v = %{

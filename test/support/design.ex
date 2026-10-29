@@ -181,4 +181,6 @@ defmodule Macaw.Layers.Test.Design do
   def encode_value(term), do: Fragment.encode_value(__MODULE__, term)
   @impl Macaw.Layers.Form
   def decode_value(tag, payload), do: Fragment.decode_value(__MODULE__, tag, payload)
+  @impl Macaw.Layers.Form
+  def name_map?(path), do: Fragment.name_map?(__MODULE__, path)
 end

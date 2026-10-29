@@ -41,6 +41,16 @@ defmodule Macaw.Layers.Form do
 
   A function, a PID, a reference, a port, a tuple or a struct the type does not write has
   no form: it is refused at its path as `{:type, :term}`.
+
+  **A name map** is a map whose keys are names, never the type's keys (a fragment type's
+  `:union` and `:deep` keys hold one, spec/02 §9). A type says where its name maps are by
+  `c:name_map?/1`; at one, a string key is written and read as the name it is, escaped
+  when it starts with `$`, whatever its spelling, and an atom key is `{:type, :name}`,
+  since names are strings. Every other map is a node, keyed as the table says. A type
+  without `c:name_map?/1` has no name maps. Below a tag, a map's place is its place in
+  the payload: `{:tag, tag}` and then the path within the payload, which a type writing a
+  payload part that sits at the type's positions (a use site's local fragment) gives
+  `encode_term/3` as `at`.
   """
 
   alias Macaw.Layers.{Callback, Document, Fault, Limits, Scan, Tags, Version, Vocabulary}
@@ -60,7 +70,14 @@ defmodule Macaw.Layers.Form do
   when the tag or payload is not one it reads.
   """
   @callback decode_value(tag :: String.t(), payload :: term()) :: {:ok, term()} | :default
-  @optional_callbacks encode_value: 1, decode_value: 2
+  @doc """
+  Whether the map at `path` is a name map: its keys are names, never the type's keys.
+  `path` is from the document's root, as the value holds it: atom keys, string names and
+  list indexes. Below a tag it is `{:tag, tag}` followed by the path within the tag's
+  payload, as it is read. A fragment type answers with `Macaw.Layers.Fragment.name_map?/2`.
+  """
+  @callback name_map?(path :: [term()]) :: boolean()
+  @optional_callbacks encode_value: 1, decode_value: 2, name_map?: 1
 
   @typedoc "`gates/3`'s and `read/3`'s options."
   @type option :: {:limits, keyword() | map()}
@@ -68,7 +85,7 @@ defmodule Macaw.Layers.Form do
   @doc "The value's map form: `{:ok, map}`, or every value and key without one, by path."
   @spec to_map(map(), module()) :: {:ok, map()} | {:error, [Fault.t(), ...]}
   def to_map(value, type) when is_map(value) and not is_struct(value) do
-    case encode(value, [], type, true) do
+    case encode(value, [], type, names(type), true) do
       {map, []} -> {:ok, map}
       {_map, faults} -> {:error, Fault.sort(faults)}
     end
@@ -79,10 +96,18 @@ defmodule Macaw.Layers.Form do
   @doc """
   One term's map form, for a type writing its own tag's payload (spec/01 §6): `{:ok, form}`,
   or every value and key without one, by path from the term.
+
+  `at` is the term's place, as `c:name_map?/1` is asked it below a tag: `{:tag, tag}` and
+  the path of the term within the payload (`[{:tag, "$use"}, "local"]`), so its maps are
+  written as the reader reads them there. `nil`, the default, is no place: every map in
+  the term is a node.
   """
-  @spec encode_term(term(), module()) :: {:ok, term()} | {:error, [Fault.t(), ...]}
-  def encode_term(term, type) do
-    case encode(term, [], type, false) do
+  @spec encode_term(term(), module(), [term()] | nil) ::
+          {:ok, term()} | {:error, [Fault.t(), ...]}
+  def encode_term(term, type, at \\ nil) do
+    names = if at == nil, do: &nodes/1, else: placed(names(type), at)
+
+    case encode(term, [], type, names, false) do
       {form, []} -> {:ok, form}
       {_form, faults} -> {:error, Fault.sort(faults)}
     end
@@ -95,7 +120,7 @@ defmodule Macaw.Layers.Form do
   @spec from_map(map(), module()) :: {:ok, map()} | {:error, [Fault.t(), ...]}
   def from_map(map, type) when is_map(map) and not is_struct(map) do
     with {:ok, map} <- Tags.read(map, type.tags()) do
-      case decode(map, [], type, true) do
+      case decode(map, [], type, names(type), true) do
         {value, []} -> {:ok, value}
         {_value, faults} -> {:error, Fault.sort(faults)}
       end
@@ -229,12 +254,25 @@ defmodule Macaw.Layers.Form do
 
   defp json_words(other), do: inspect(other)
 
+  # -- name maps ------------------------------------------------------------------------
+
+  # Whether the map at a path is a name map: the type's word where it gives one, else no
+  # map is.
+  defp names(type) do
+    if Callback.exported?(type, :name_map?, 1), do: &type.name_map?/1, else: &nodes/1
+  end
+
+  defp nodes(_path), do: false
+
+  # A term's maps asked at their place: `at`, then their path within the term.
+  defp placed(names, at), do: fn path -> names.(at ++ path) end
+
   # -- encode ---------------------------------------------------------------------------
 
-  defp encode(term, path, type, root?) do
+  defp encode(term, path, type, names, root?) do
     case own(type, term) do
       {:ok, json} -> {json, []}
-      :default -> term(term, path, type, root?)
+      :default -> term(term, path, type, names, root?)
     end
   end
 
@@ -242,33 +280,34 @@ defmodule Macaw.Layers.Form do
     if Callback.exported?(type, :encode_value, 1), do: type.encode_value(term), else: :default
   end
 
-  defp term(v, _path, _type, _root?)
+  defp term(v, _path, _type, _names, _root?)
        when is_nil(v) or is_boolean(v) or is_number(v) or is_binary(v),
        do: {v, []}
 
-  defp term(v, _path, _type, _root?) when is_atom(v), do: {%{"$atom" => Atom.to_string(v)}, []}
+  defp term(v, _path, _type, _names, _root?) when is_atom(v),
+    do: {%{"$atom" => Atom.to_string(v)}, []}
 
-  defp term(%DateTime{time_zone: "Etc/UTC"} = t, _path, _type, _root?),
+  defp term(%DateTime{time_zone: "Etc/UTC"} = t, _path, _type, _names, _root?),
     do: {%{"$time" => DateTime.to_iso8601(t)}, []}
 
-  defp term(v, path, type, _root?) when is_list(v) do
+  defp term(v, path, type, names, _root?) when is_list(v) do
     {items, faults} =
       v
       |> Enum.with_index()
-      |> Enum.map(fn {e, i} -> encode(e, path ++ [i], type, false) end)
+      |> Enum.map(fn {e, i} -> encode(e, path ++ [i], type, names, false) end)
       |> Enum.unzip()
 
     {items, Enum.concat(faults)}
   end
 
-  defp term(v, path, type, root?) when is_map(v) and not is_struct(v) do
-    keys = type.keys()
+  defp term(v, path, type, names, root?) when is_map(v) and not is_struct(v) do
+    keys = if names.(path), do: :names, else: type.keys()
 
     {pairs, faults} =
       v
       |> Enum.map(fn {k, e} ->
         {json_key, key_faults} = key(k, path, keys, root?)
-        {e, faults} = encode(e, path ++ [k], type, false)
+        {e, faults} = encode(e, path ++ [k], type, names, false)
         {{json_key, e}, key_faults ++ faults}
       end)
       |> Enum.unzip()
@@ -276,14 +315,18 @@ defmodule Macaw.Layers.Form do
     {Map.new(pairs), Enum.concat(faults)}
   end
 
-  defp term(v, path, _type, _root?), do: {v, [{path, {:type, :term}}]}
+  defp term(v, path, _type, _names, _root?), do: {v, [{path, {:type, :term}}]}
 
-  # An atom key is one the type reads; a string key is a name, which must not be spelled
-  # like one of the type's keys (it would read back as the key), escaped when it starts
-  # with `$`. The stamp at the root is not data.
+  # In a name map a key is a name, a string, escaped when it starts with `$`. In a node an
+  # atom key is one the type reads; a string key is a name, which must not be spelled like
+  # one of the type's keys (it would read back as the key), escaped when it starts with
+  # `$`. The stamp at the root is not data.
   defp key(@stamp, _path, _keys, true), do: {@stamp, []}
 
-  defp key(k, path, keys, _root?) when is_atom(k) and not is_nil(k) and not is_boolean(k) do
+  defp key(k, _path, :names, _root?) when is_binary(k), do: {Tags.escape(k), []}
+
+  defp key(k, path, keys, _root?)
+       when is_atom(k) and not is_nil(k) and not is_boolean(k) and keys != :names do
     spelling = Atom.to_string(k)
 
     case Vocabulary.fetch(keys, spelling) do
@@ -304,30 +347,31 @@ defmodule Macaw.Layers.Form do
   # -- decode ---------------------------------------------------------------------------
 
   # The root's stamp alone is data, not the `$version` tag.
-  defp decode(%{@stamp => _} = map, path, type, true) when map_size(map) == 1,
-    do: data(map, path, type, true)
+  defp decode(%{@stamp => _} = map, path, type, names, true) when map_size(map) == 1,
+    do: data(map, path, type, names, true)
 
-  defp decode(map, path, type, root?) when is_map(map) and map_size(map) == 1 do
+  defp decode(map, path, type, names, root?) when is_map(map) and map_size(map) == 1 do
     case Map.to_list(map) do
-      [{"$$" <> _, _}] -> data(map, path, type, root?)
+      [{"$$" <> _, _}] -> data(map, path, type, names, root?)
       [{"$" <> _ = tag, payload}] -> tagged(tag, payload, path, type)
-      _ -> data(map, path, type, root?)
+      _ -> data(map, path, type, names, root?)
     end
   end
 
-  defp decode(map, path, type, root?) when is_map(map), do: data(map, path, type, root?)
+  defp decode(map, path, type, names, root?) when is_map(map),
+    do: data(map, path, type, names, root?)
 
-  defp decode(list, path, type, _root?) when is_list(list) do
+  defp decode(list, path, type, names, _root?) when is_list(list) do
     {items, faults} =
       list
       |> Enum.with_index()
-      |> Enum.map(fn {e, i} -> decode(e, path ++ [i], type, false) end)
+      |> Enum.map(fn {e, i} -> decode(e, path ++ [i], type, names, false) end)
       |> Enum.unzip()
 
     {items, Enum.concat(faults)}
   end
 
-  defp decode(leaf, _path, _type, _root?), do: {leaf, []}
+  defp decode(leaf, _path, _type, _names, _root?), do: {leaf, []}
 
   defp tagged("$atom", spelling, path, type) do
     atoms = type.atoms()
@@ -347,8 +391,13 @@ defmodule Macaw.Layers.Form do
 
   defp tagged("$time", other, path, _type), do: {other, [{path, {:type, :time}}]}
 
+  # A payload's maps are asked at their place in it: `{:tag, tag}`, then their path below
+  # the tag, as `encode_term/3` writes them.
   defp tagged(tag, payload, path, type) do
-    {payload, faults} = decode(payload, path ++ [tag], type, false)
+    below = length(path) + 1
+    at = placed(names(type), [{:tag, tag}])
+    names = fn path -> at.(Enum.drop(path, below)) end
+    {payload, faults} = decode(payload, path ++ [tag], type, names, false)
 
     cond do
       faults != [] ->
@@ -365,14 +414,14 @@ defmodule Macaw.Layers.Form do
     end
   end
 
-  defp data(map, path, type, root?) do
-    keys = type.keys()
+  defp data(map, path, type, names, root?) do
+    keys = if names.(path), do: :names, else: type.keys()
 
     {pairs, faults} =
       map
       |> Enum.map(fn {k, e} ->
         k = read_key(k, keys, root?)
-        {e, faults} = decode(e, path ++ [k], type, false)
+        {e, faults} = decode(e, path ++ [k], type, names, false)
         {{k, e}, faults}
       end)
       |> Enum.unzip()
@@ -380,7 +429,9 @@ defmodule Macaw.Layers.Form do
     {Map.new(pairs), Enum.concat(faults)}
   end
 
+  # A name map's key is the name, never the type's key of the same spelling.
   defp read_key(@stamp, _keys, true), do: @stamp
+  defp read_key(k, :names, _root?), do: Tags.unescape(k)
 
   defp read_key(k, keys, _root?) do
     case Vocabulary.fetch(keys, k) do

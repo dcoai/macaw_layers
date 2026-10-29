@@ -13,6 +13,13 @@
 - `Bundle.validate/1` judges a `%Bundle{}`; `Bundle.check(bundle, types)` adds each entry's kind. `Bundle.from_map/3` and `from_json/3` report the map form's own faults, then the entries' reads, then the term's check. `Store.relocate/3` checks the bundle term instead of writing it to its map form and reading it back, so a bundle read under a raised limit relocates.
 - `Theme.Document.from_map/2` judges the value with no form written or read and takes no `limits:` (they are `from_json/2`'s); `Theme.Document.validate/1` judges the envelope value, so a key beside `theme` is named by its atom.
 
+The JSON adapter tells a name map from a node by the type's positions (spec/01 §6, spec/02 §9, spec/04 §5, #10, dco-tek/macaw/macaw#184).
+
+- An optional `Form` callback, `name_map?(path)`: whether the map at `path` holds names, never the type's keys. At a name map a string key is written and read as the name, whatever its spelling (a style named `"fill"`, a scale `"x"`), escaped as before when it starts with `$`; an atom key there is `{:type, :name}`, since names are strings. At a node, and for a type without the callback, keys are as before.
+- `Fragment.name_map?(type, path)`, from the type's specs: a `:union` or `:deep` key holds a name map whose entries are nodes of its `element` kind, for a fragment type to implement the callback in one line.
+- **Breaking:** `Theme.Document`'s `ramps`, `colors`, `styles` and `defaults` are name maps, and its value spells every name in them as a string: `node/1`, `fragment/1` and `to_map/1` write `"info"` where they wrote `:info`. `from_map/2` and `from_json/2` read a library spelling back as its atom in one place, so the theme read is unchanged, its JSON form is unchanged, and a theme entry of a store goes through a bundle's forms and import. A node with atom names still reads; `Form.to_map/2` of one is `{:type, :name}` at each.
+- A use site's `local` is a fragment of the type: `Form.encode_term/3` takes the term's place below its tag (`at`), the reader asks `name_map?/1` at `{:tag, tag}` and the path within the payload, and `Fragment.name_map?/2` places a `$use` local at the root's positions, so a local holding a style named `"fill"` round-trips.
+
 ## v0.2.4 (2026-10-29)
 
 Additive: the hooks visualize needs to adopt the cascade and composites (macaw#179, macaw#183, visualize#963), and a load-order fix.

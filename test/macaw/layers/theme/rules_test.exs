@@ -343,7 +343,7 @@ defmodule Macaw.Layers.Theme.RulesTest do
           name: "house",
           axis: "#555555",
           colors: %{"brand" => "#123456"},
-          styles: %{muted: %{opacity: 0.4}}
+          styles: %{"muted" => %{opacity: 0.4}}
         }
       }
 

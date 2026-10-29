@@ -16,7 +16,7 @@ defmodule Macaw.Layers.Fragment do
   - `explain/2` says which layer set every value of a stack (§6.3);
   - `kind/2`, `refs/2` and `relocate/3` read a fragment's kind and ids (§6.1, §6.2);
   - `encode_value/2` and `decode_value/3` write and read variables, ids and use sites in
-    the type's forms (§9).
+    the type's forms, and `name_map?/2` says where its name maps are (§9).
 
   **A struct is a leaf of every walk** (visualize D-92): a `%Macaw.Layers.Var{}` stands for
   a value rather than being one. Only `refs/2` and `relocate/3` read a struct's parts, a
@@ -339,6 +339,49 @@ defmodule Macaw.Layers.Fragment do
   # -- the forms ---------------------------------------------------------------------------
 
   @doc """
+  Whether the map at `path` in a document of the type is a name map (spec/02 §9), derived
+  from the type's specs, for a type's `Macaw.Layers.Form.name_map?/1` to call. Walking the
+  path from the root node: a `:union` or `:deep` key holds a name map, whose every entry is
+  a node of the key's `element` kind; a key with a `node` kind leads to a node of it, and
+  so does a singular wrapper key at the root; a `:concat` key holds a list whose every
+  element is a node of its `element` kind. Anything else is a leaf, never a name map.
+
+  Below a tag (`{:tag, tag}` first, spec/01 §6), a use site's `local` is a fragment of the
+  type, so its maps are at the type's positions from the root; every other payload's maps
+  are nodes.
+
+      iex> Macaw.Layers.Fragment.name_map?(Macaw.Layers.Theme.Document, [:theme, :styles])
+      true
+      iex> Macaw.Layers.Fragment.name_map?(Macaw.Layers.Theme.Document, [:theme, :styles, "x"])
+      false
+  """
+  @spec name_map?(module(), [term()]) :: boolean()
+  def name_map?(type, [{:tag, "$use"}, local | path]) when local in ["local", :local],
+    do: name_map?(type, path)
+
+  def name_map?(type, path) when is_list(path) do
+    match?({:names, _element}, Enum.reduce(path, {:node, type.root()}, &position(type, &2, &1)))
+  end
+
+  # Where one step of a path leads: a node of a kind, a name map or a list of elements of a
+  # kind, or a leaf, below which nothing is a name map.
+  defp position(type, {:node, kind}, key) do
+    case Compose.spec(type, kind, key) do
+      %{merge: merge, element: element} when merge in [:union, :deep] -> {:names, element}
+      %{merge: :concat, element: element} -> {:list, element}
+      %{node: node} when node != nil -> {:node, node}
+      _leaf -> :leaf
+    end
+  end
+
+  defp position(_type, {:names, element}, _name) when element != nil, do: {:node, element}
+
+  defp position(_type, {:list, element}, i) when element != nil and is_integer(i),
+    do: {:node, element}
+
+  defp position(_type, _position, _key), do: :leaf
+
+  @doc """
   The map form of this file's terms (spec/02 §9), for a type's `encode_value/1` to call:
   a variable as `{"$var": name}`, an id as `{"$id": [kind, n]}`, a use site as
   `{"$use": {…}}`, its parts in the type's own map form; `:default` for any other term.
@@ -360,11 +403,12 @@ defmodule Macaw.Layers.Fragment do
       {"origin", use.origin}
     ]
 
-    # The payload's keys are the tag's own, so each part is written as a term; a part with
-    # no form leaves the site to the kernel, which refuses it at its path.
+    # The payload's keys are the tag's own, so each part is written as a term, the local
+    # fragment at the type's positions; a part with no form leaves the site to the kernel,
+    # which refuses it at its path.
     parts
     |> Enum.reduce_while(%{"id" => n}, fn {k, v}, payload ->
-      case Form.encode_term(v, type) do
+      case Form.encode_term(v, type, [{:tag, "$use"}, k]) do
         {:ok, form} -> {:cont, Map.put(payload, k, form)}
         {:error, _faults} -> {:halt, :default}
       end

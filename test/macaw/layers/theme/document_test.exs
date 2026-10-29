@@ -6,7 +6,8 @@ defmodule Macaw.Layers.Theme.DocumentTest do
   """
   use ExUnit.Case, async: true
 
-  alias Macaw.Layers.{Fault, Form, Theme, Var}
+  alias Macaw.Layers.{Bundle, Fault, Form, Store, Theme, Var}
+  alias Macaw.Layers.Store.Memory
   alias Macaw.Layers.Theme.Document
 
   doctest Document
@@ -22,6 +23,8 @@ defmodule Macaw.Layers.Theme.DocumentTest do
 
   @themes [Theme.default(), Theme.dark(), Theme.color_safe(), @house]
 
+  defp strings(names), do: Map.new(names, fn {k, v} -> {to_string(k), v} end)
+
   describe "round trips" do
     @tag verifies: "themes-document-forms"
     test "every built-in theme and a host theme read back as themselves, in both forms" do
@@ -36,10 +39,11 @@ defmodule Macaw.Layers.Theme.DocumentTest do
     test "the map form is stamped with the current version and holds every field" do
       %{version: version, theme: node} = Document.to_map(@house)
       assert version == Document.current()
-      assert node.ramps == @house.ramps
-      assert node.colors == @house.colors
-      assert node.colors.info == "#2f5d8a"
-      assert node.styles == @house.styles
+      # Every name a string (spec/01 §1), the library's read back as its atoms.
+      assert node.ramps == strings(@house.ramps)
+      assert node.colors == strings(@house.colors)
+      assert node.colors["info"] == "#2f5d8a"
+      assert node.styles == strings(@house.styles)
       # Every field but a counterpart the theme does not declare, root defaults it does not
       # set, and the host's extensions, which never travel.
       assert Map.keys(node) |> Enum.sort() ==
@@ -51,8 +55,9 @@ defmodule Macaw.Layers.Theme.DocumentTest do
     test "a theme's own root defaults travel in its document" do
       defaults = %{stroke: %{width: 1.5}, line: %{curve: %{type: :step}}}
       theme = Theme.merge(@house, defaults: defaults)
-      # A key or atom outside the library's vocabulary is held by its string.
-      held = %{:stroke => %{width: 1.5}, "line" => %{curve: %{type: "step"}}}
+      # Every name in the node a string; an atom outside the library's vocabulary inside
+      # an entry is held by its string.
+      held = %{"stroke" => %{width: 1.5}, "line" => %{curve: %{type: "step"}}}
       assert %{theme: %{defaults: ^held}} = Document.to_map(theme)
       assert Document.from_map(Document.to_map(theme)) == {:ok, theme}
       assert {:ok, json} = Document.to_json(theme)
@@ -66,6 +71,55 @@ defmodule Macaw.Layers.Theme.DocumentTest do
       assert decoded["$version"] == Document.current()
       assert decoded["theme"]["name"] == "house"
       assert decoded["theme"]["ramps"]["status"] == ~w(#4ca34b #bd7407 #c23238)
+    end
+
+    @tag verifies: "themes-document-forms"
+    test "a node's name maps hold names as strings, the library's read back as its atoms" do
+      assert Document.name_map?([:theme, :styles])
+      refute Document.name_map?([:theme, :styles, "primary"])
+
+      node = Document.node(@house)
+
+      for key <- [:ramps, :colors, :styles],
+          do: assert(node |> Map.fetch!(key) |> Map.keys() |> Enum.all?(&is_binary/1))
+
+      {:ok, json} = Document.to_json(@house)
+      assert JSON.decode!(json)["theme"]["colors"]["info"] == "#2f5d8a"
+      assert {:ok, %Theme{colors: %{info: "#2f5d8a"}}} = Document.from_json(json)
+
+      # A node spelling the library's names as atoms builds the same theme.
+      atoms = %{
+        ramps: %{status: ~w(#4ca34b #bd7407 #c23238)},
+        colors: %{info: "#2f5d8a"},
+        styles: %{muted: %{opacity: 0.4}}
+      }
+
+      assert {:ok, theme} = Document.from_map(%{theme: atoms})
+
+      assert Document.from_map(%{theme: Map.new(atoms, fn {k, v} -> {k, strings(v)} end)}) ==
+               {:ok, theme}
+
+      # A name the theme holds as both its atom and its string is written as the atom's
+      # entry, the one it draws with.
+      both = Theme.new(name: :house, colors: %{"info" => "#123456"})
+      assert Document.node(both).colors["info"] == both.colors.info
+    end
+
+    @tag verifies: "themes-document-forms"
+    test "a theme entry of a store round-trips through a bundle's forms and relocates" do
+      store = {Memory, start_supervised!({Memory, types: [Document]}, id: :themes)}
+      other = {Memory, start_supervised!({Memory, types: [Document]}, id: :other_themes)}
+      {:ok, id} = Store.put(store, %{id: nil, name: "House", fragment: Document.fragment(@house)})
+      bundle = Bundle.export(store, id, "lib")
+
+      assert {:ok, map} = Bundle.to_map(bundle, [Document])
+      assert Bundle.from_map(map, [Document]) == {:ok, bundle}
+      assert {:ok, json} = Bundle.to_json(bundle, [Document])
+      assert Bundle.from_json(json, [Document]) == {:ok, bundle}
+
+      assert {:ok, %{ids: %{^id => new}}} = Store.import(other, bundle)
+      assert {:ok, %{fragment: fragment}} = Store.get(other, new)
+      assert Document.from_map(fragment) == {:ok, @house}
     end
 
     @tag verifies: "themes-document-forms"
@@ -163,13 +217,13 @@ defmodule Macaw.Layers.Theme.DocumentTest do
 
     @tag verifies: "themes-document-value"
     test "a value is judged as terms, never through its form" do
-      # Root defaults built in Elixir under an atom key the JSON form has no spelling for:
-      # the form refuses the value, and the theme, which holds a name outside its
-      # vocabulary by its string, takes it.
+      # Root defaults built in Elixir under an atom name, which the JSON form's name map
+      # can't hold (its names are strings): the form refuses the value, and the theme,
+      # which holds a name outside its vocabulary by its string, takes it.
       node = %{defaults: %{line: %{curve: %{type: :step}}}}
 
       assert Form.to_map(%{theme: node}, Document) ==
-               {:error, [{[:theme, :defaults, :line], :unknown_key}]}
+               {:error, [{[:theme, :defaults, :line], {:type, :name}}]}
 
       assert {:ok, theme} = Document.from_map(%{theme: node})
       assert theme.defaults == %{"line" => %{curve: %{type: "step"}}}

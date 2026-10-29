@@ -8,7 +8,7 @@ Every configurable thing in Macaw is a document of the **fragment shape** (macaw
 
 | Module | What it is |
 |---|---|
-| `Macaw.Layers.Fragment` | the fragment-type behavior, and the operations over fragments of a type: kind, ids, `compose/3`, `stack/2`, `explain/2` (§1–§4, §6), and the forms of this file's terms (§9) |
+| `Macaw.Layers.Fragment` | the fragment-type behavior, and the operations over fragments of a type: kind, ids, `compose/3`, `stack/2`, `explain/2` (§1–§4, §6), and the forms of this file's terms and where a type's name maps are (§9) |
 | `Macaw.Layers.Var` | a variable, binding and the variables still open (§5) |
 | `Macaw.Layers.Use` | a use site: `ref → local → mask → bind` (§7) |
 | `Macaw.Layers.Composite` | composites: flattening and decomposing (§8) |
@@ -348,6 +348,20 @@ A fragment's map and JSON forms are its type's (spec/01 §6), with three terms o
 | `%Use{}` | `{"$use": {"id": n, "ref": …, "mask": [...] \| "all", "vars": {...}, "local": {...}, "key": …, "origin": …}}`, `origin` absent or `null` where there is none |
 
 A type that stacks lists `$var`, `$id` and `$use` among its live tags (`Macaw.Layers.Tags`) and reads and writes them through `Fragment.encode_value/2` and `decode_value/3`, so `from_map(to_map(f))` is `{:ok, f}` for every fragment, a composite holding uses and ids included. A fragment is not validated as a whole document, since a fragment may be partial.
+
+**Name maps.** A `:union` or `:deep` key holds a map of names (§2), so its keys are names, strings whatever their spelling, never the type's keys: a style may be named `"fill"`, a scale `"x"`. `Fragment.name_map?(type, path)` says whether the map at `path` (atom keys, string names and list indexes from the root) is one, derived from the type's specs by walking the path from `root/0`:
+- a key whose spec is `:union` or `:deep` holds a name map, and each of its entries is a node of the spec's `element` kind;
+- a key with a `node` kind leads to a node of that kind, and so does a singular wrapper key at the root (`wrapper/1`);
+- a `:concat` key holds a list, each of whose elements is a node of its `element` kind;
+- anything else is a leaf, below which nothing is a name map: a key the kind does not know, an `:override` key with no node, a `{:type, name}` key, an entry or element of no kind.
+
+Below a tag (spec/01 §6) a path starts `{:tag, tag}`. A use site's `local` is a fragment of the type, so `[{:tag, "$use"}, "local" | path]` is `path` from the root, and `Fragment.encode_value/2` writes each part of a `$use` payload at its place (`encode_term/3`); every other payload's maps are nodes.
+
+A fragment type implements the JSON adapter's `name_map?/1` (spec/01 §6) with it, in one line: `def name_map?(path), do: Fragment.name_map?(__MODULE__, path)`.
+
+```test:fragments-name-map-positions
+over the test type, a :union and a :deep key and a :union key inside a :deep entry hold name maps, and their entries, a :concat list's elements, a node, a root wrapper's node, a key the type does not know and the root do not; a wrapper leads to its kind's name maps at the root only; below a $use tag the local is at the root's positions and every other part is a node, and a use site whose local holds a style named "fill" round-trips through the map and JSON forms
+```
 
 ```test:fragments-forms-round-trip
 a fragment holding variables, ids and use sites round-trips through the map and JSON forms; an id of a kind the type does not hold is refused at its path and makes no atom
