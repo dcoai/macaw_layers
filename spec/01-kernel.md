@@ -177,7 +177,8 @@ Faults from one gate stop the gates after it: a document over a limit is not dec
 | `depth` | `64` | how deeply objects and arrays nest; the document itself is depth 1 |
 | `items` | `100_000` | the entries any one object or array holds |
 
-- **A host may tighten every limit,** by `limits:` in `read/3`'s options; a limit it does not name keeps its default. A value above the default, one that is not a positive integer, or a name that is not a limit raises `ArgumentError` when the limits are built (`Limits.new/1`): a host can't loosen a sanity limit by mistake.
+- **A host may tighten every limit,** by `limits:` in `read/3`'s options; a limit it does not name keeps its default. A plain value above the default, one that is not a positive integer, or a name that is not a limit raises `ArgumentError` when the limits are built (`Limits.new/1`): a host can't loosen a sanity limit by mistake.
+- **A host may raise a limit only by naming the raise,** per limit: `limits: [items: {:raise, 500_000}]`. The host knows its inputs are trusted and large (a bundle import of a whole library); Macaw knows only generic sanity values. A raise not above the default raises `ArgumentError`, so a raise always says what it is, and a document over the raised value is still refused with the same `{:limit, name, max, given}` fault.
 - **Depth:** a container beyond the limit is reported once, at its own path, as `{path, {:limit, :depth, max, max + 1}}`, and nothing inside it is walked.
 - **Items:** a container over the limit is reported at its own path as `{path, {:limit, :items, max, given}}`. The scan stops once a container holds one entry more than the limit, so its *given* is `max + 1`; the walk of a map form counts every entry. A key that appears twice in one object is counted twice by the scan, as the document holds it twice.
 
@@ -213,6 +214,10 @@ a migration that grows a document past the depth or items limit is refused after
 
 ```test:gates-limits
 Limits.new/1 tightens a named limit and keeps the rest at their defaults; a loosened limit, a non-positive or non-integer value, and an unknown name each raise ArgumentError
+```
+
+```test:gates-limits-raise
+{:raise, max} raises a named limit above its default, so a document over the default and under the raise is read and one over the raise is the limit fault; a raise not above the default, or not an integer, raises ArgumentError
 ```
 
 ```test:gates-unknown-keys

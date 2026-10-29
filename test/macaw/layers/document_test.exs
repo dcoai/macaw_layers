@@ -271,6 +271,36 @@ defmodule Macaw.Layers.DocumentTest do
     assert_raise ArgumentError, fn -> Document.read("{}", Page, limits: [items: 200_000]) end
   end
 
+  @tag verifies: "gates-limits-raise"
+  test "a host raises a named limit only by saying so, and the raised value still holds" do
+    assert Limits.new(items: {:raise, 500_000}) == %{bytes: 8_000_000, depth: 64, items: 500_000}
+    assert Limits.new(depth: {:raise, 65}, items: 10).depth == 65
+
+    # One entry over the default reads under a raise, and one over the raise is refused.
+    blocks = fn n -> JSON.encode!(%{"title" => "t", "blocks" => List.duplicate(["x"], n)}) end
+
+    assert {:error, [{["blocks"], {:limit, :items, 100_000, 100_001}}]} =
+             Document.read(blocks.(100_001), Page)
+
+    assert {:ok, %{"blocks" => read}} =
+             Document.read(blocks.(100_001), Page, limits: [items: {:raise, 100_001}])
+
+    assert length(read) == 100_001
+
+    assert Document.read(blocks.(100_002), Page, limits: [items: {:raise, 100_001}]) ==
+             {:error, [{["blocks"], {:limit, :items, 100_001, 100_002}}]}
+
+    for bad <- [
+          [items: {:raise, 100_000}],
+          [items: {:raise, 10}],
+          [items: {:raise, 1.5e6}],
+          [items: {:lift, 200_000}],
+          [rows: {:raise, 5}]
+        ] do
+      assert_raise ArgumentError, fn -> Limits.new(bad) end
+    end
+  end
+
   @tag verifies: "gates-unknown-keys"
   test "unknown keys are refused at their own spelling, under the path" do
     map = %{"title" => 1, "ttle" => 2, "Title" => 3, "blocks" => 4}

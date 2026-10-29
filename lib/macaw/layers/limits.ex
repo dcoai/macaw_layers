@@ -9,8 +9,11 @@ defmodule Macaw.Layers.Limits do
   | `items` | `100_000` | the entries any one object or array holds |
 
   They bound what reading a document can be made to cost. **A host may tighten every
-  limit,** never loosen one: a host loading untrusted input knows its inputs and lowers the
-  numbers at its layer, and a limit it does not name keeps its default.
+  limit:** a host loading untrusted input knows its inputs and lowers the numbers at its
+  layer, and a limit it does not name keeps its default. **A host may raise a limit only
+  by saying so, per limit:** `{:raise, max}` for a host whose inputs are trusted and large
+  (a bundle import). A plain value above the default still raises, so no limit is loosened
+  by mistake.
 
   A fault is `{path, {:limit, name, max, given}}`, worded by `Macaw.Layers.Fault.format/2`.
 
@@ -33,13 +36,18 @@ defmodule Macaw.Layers.Limits do
   def defaults, do: @defaults
 
   @doc """
-  The limits a reader applies: `given` over `defaults/0`.
+  The limits a reader applies: `given` over `defaults/0`. A plain value tightens a limit;
+  `{:raise, max}` raises it above its default.
 
   Raises `ArgumentError` for a name that is not a limit, a value that is not a positive
-  integer, or one above the default: a host can't loosen a sanity limit by mistake.
+  integer, a plain value above the default (a host can't loosen a sanity limit by mistake)
+  and a raise that is not above it.
 
       iex> Macaw.Layers.Limits.new(items: 10).items
       10
+
+      iex> Macaw.Layers.Limits.new(items: {:raise, 500_000}).items
+      500000
   """
   @spec new(keyword() | map()) :: t()
   def new(given) when is_list(given) or is_map(given) do
@@ -47,14 +55,25 @@ defmodule Macaw.Layers.Limits do
       {name, max}, acc when is_map_key(@defaults, name) and is_integer(max) and max > 0 ->
         if max > @defaults[name] do
           raise ArgumentError,
-                "limit #{name} may be tightened, not loosened: " <>
+                "limit #{name} may be tightened, or raised with {:raise, #{max}}: " <>
                   "#{max} is above the default #{@defaults[name]}"
         end
 
         Map.put(acc, name, max)
 
+      {name, {:raise, max}}, acc when is_map_key(@defaults, name) and is_integer(max) ->
+        if max <= @defaults[name] do
+          raise ArgumentError,
+                "limit #{name} is raised above its default #{@defaults[name]}, " <>
+                  "not to #{max}; tighten it with a plain value"
+        end
+
+        Map.put(acc, name, max)
+
       {name, max}, _acc when is_map_key(@defaults, name) ->
-        raise ArgumentError, "limit #{name} must be a positive integer, got: #{inspect(max)}"
+        raise ArgumentError,
+              "limit #{name} must be a positive integer, or {:raise, max} above the default, " <>
+                "got: #{inspect(max)}"
 
       {name, _max}, _acc ->
         raise ArgumentError,
