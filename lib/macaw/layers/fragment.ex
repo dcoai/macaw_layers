@@ -73,13 +73,34 @@ defmodule Macaw.Layers.Fragment do
   @doc "The type's own merge of a key whose rule is `{:type, name}`."
   @callback merge(atom(), term(), term()) :: term()
 
+  @doc """
+  The two values a key of `kind` holds in both fragments, as they merge (spec/02 §3.3): a
+  type expands a shorthand on one side to the part the other side gives, so the two merge
+  key by key. Called only for a key both fragments hold.
+  """
+  @callback normalize(kind(), term(), lower :: term(), higher :: term()) :: {term(), term()}
+
+  @doc """
+  The keys of a lower node of `kind` that `higher`, merging over it, keeps (spec/02 §3.3):
+  `:all`, or the keys to keep, so a node whose type changes drops what the new type
+  doesn't take. It reads only the higher node, so the cascade stays associative.
+  """
+  @callback under(kind(), higher :: map()) :: :all | [term()]
+
   @doc "Every id left at a reference site of a flattened document resolved through `fetch`."
   @callback inline(map(), (id() -> {:ok, map()} | :error)) :: {map(), [{id(), list()}]}
 
   @doc "A whole document as inline sites, one kind each."
   @callback decompose(map()) :: [Use.t()]
 
-  @optional_callbacks identity: 2, holes: 3, bind_holes: 4, merge: 3, inline: 2, decompose: 1
+  @optional_callbacks identity: 2,
+                      holes: 3,
+                      bind_holes: 4,
+                      merge: 3,
+                      normalize: 4,
+                      under: 2,
+                      inline: 2,
+                      decompose: 1
 
   # -- composition and the stack --------------------------------------------------------
 

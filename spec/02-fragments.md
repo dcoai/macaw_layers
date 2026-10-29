@@ -28,6 +28,8 @@ A **fragment** is a document of a type, or any part of one: a map with the type'
 | `holes(kind, key, value) :: [Var.t()]` *(optional)* | the variables a value of the type's own syntax holds, a text template's holes (§5.2) |
 | `bind_holes(kind, key, value, bindings) :: term()` *(optional)* | that value with its holes substituted, written back in the type's syntax (§5.1) |
 | `merge(rule_name, lower, higher) :: term()` *(optional)* | the type's own merge of a key whose rule is `{:type, rule_name}` (§2) |
+| `normalize(kind, key, lower, higher) :: {lower, higher}` *(optional)* | the two values of a key both fragments hold, as they merge: a shorthand on one side expanded to the part the other gives (§3.3) |
+| `under(kind, higher) :: :all \| [key]` *(optional)* | the keys of a lower node of `kind` that `higher`, merging over it, keeps (§3.3) |
 | `inline(document, fetch) :: {document, [{id, path}]}` *(optional)* | every id left at a reference site of a flattened document resolved through `fetch`, and the ids that were missing (§8.1) |
 | `decompose(document) :: [Use.t()]` *(optional)* | a whole document as inline sites, one kind each (§8.2) |
 
@@ -104,6 +106,27 @@ a higher element with the lower's identity replaces it whole in place, every oth
 
 ```test:fragments-stack-algebra
 stack is the left fold and associative wherever no layer gives a mergeable key as a struct; stack of one layer is that layer; over disjoint fragments stack equals the map compose answers
+```
+
+### 3.3 The type's hooks {#fragments-hooks}
+
+**Two optional callbacks let a type say how its own nodes merge,** in `compose/3`, `stack/2` and `explain/2` alike, so the three never disagree. A type without them merges exactly as §3.1 and §3.2 say.
+
+- **`normalize(kind, key, lower, higher)`** runs for a key **both** fragments hold, before its rule, and answers the two values the rule then merges. A type expands a shorthand written on one side to the part the other side gives (visualize's style parts: `stroke: "red"` against `stroke: %{width: 2}` is a solid part of color red), so the two merge key by key and `explain/2` reports one leaf per part. A key one fragment alone holds is never normalized: a fragment that is not merged is not rewritten.
+- **`under(kind, higher)`** runs where two nodes of `kind` merge, and names the keys of the lower node the higher keeps: `:all`, or a list, the rest dropped before the merge. A node whose type changes keeps of the lower only what the new type takes (visualize D-172: a dashed paint under a gradient keeps its width, not its dash). **It reads only the higher node,** so whatever it answers, the trimmed lower is a filter the higher alone decides, and the cascade stays associative (§3.2): a stack built in parts is still the stack of the whole.
+
+**Provenance follows the normalized parts.** A leaf that came from a value a layer set whole and the type expanded is reported as that layer's: `explain/2` gives a leaf the layer of its own path, else of the nearest path above it a layer set.
+
+```test:fragments-hooks-normalize
+a shorthand against a part merges as the part key by key, in stack and compose alike, either way round; two shorthands are the higher's word; explain reports each normalized part's leaf with the layer that set it
+```
+
+```test:fragments-hooks-under
+a node whose type changes keeps of the lower only the keys the higher names, a node of the same type or of none keeps all, a deep entry and compose are trimmed the same way, and over generated layers stack stays associative with the hooks
+```
+
+```test:fragments-hooks-without
+a type without normalize/4 and under/2 merges exactly as before
 ```
 
 ## 4. Masks {#fragments-masks}

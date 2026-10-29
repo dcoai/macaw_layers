@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The cascade's hooks (spec/02 §3.3, #5, macaw#179): a fragment type may `normalize/4` a key both fragments hold (a shorthand against a part merges as the part) and name with `under/2` the keys of a lower node a higher one keeps (a node whose type changes); both hold in `compose/3`, `stack/2` and `explain/2`, and `under/2` reads only the higher node, so the cascade stays associative. `explain/2` reports a normalized part's leaf with the layer that set it.
 - An optional callback is found whether or not its module is loaded: `Macaw.Layers.Callback.exported?/3`, used by `Form`, the cascade and every other site, replaces `Fragment.callback?/3`; CI refuses a bare `function_exported?/3` (spec/01 §9, #4, macaw#136).
 
 ## v0.2.3 (2026-10-28)

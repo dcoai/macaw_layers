@@ -9,7 +9,7 @@ defmodule Macaw.Layers.Fragment.Compose do
   #
   # Ported from visualize's `Visualize.Chart.Compose`.
 
-  alias Macaw.Layers.Fault
+  alias Macaw.Layers.{Callback, Fault}
 
   @spec merge(module(), map(), map()) :: {:ok, map()} | {:error, [Fault.t(), ...]}
   def merge(type, a, b) do
@@ -20,6 +20,8 @@ defmodule Macaw.Layers.Fragment.Compose do
   end
 
   defp node(type, kind, a, b, path) do
+    a = under(type, kind, a, b)
+
     (Map.keys(a) ++ Map.keys(b))
     |> Enum.uniq()
     |> Enum.reduce({%{}, []}, fn k, {acc, faults} ->
@@ -38,9 +40,34 @@ defmodule Macaw.Layers.Fragment.Compose do
   end
 
   defp key(type, kind, k, va, vb, path) do
+    {va, vb} = normalize(type, kind, k, va, vb)
+
     case spec(type, kind, k) do
       nil -> {vb, []}
       spec -> rule(type, spec, va, vb, path)
+    end
+  end
+
+  @doc false
+  # The two values of a key both fragments hold, as the type normalizes them (spec/02
+  # §3.3); as they are for a type without `normalize/4`.
+  @spec normalize(module(), atom(), term(), term(), term()) :: {term(), term()}
+  def normalize(type, kind, k, va, vb) do
+    if Callback.exported?(type, :normalize, 4),
+      do: type.normalize(kind, k, va, vb),
+      else: {va, vb}
+  end
+
+  @doc false
+  # The lower node, of what the higher keeps of it (spec/02 §3.3): all of it for a type
+  # without `under/2`.
+  @spec under(module(), atom(), map(), map()) :: map()
+  def under(type, kind, lower, higher) do
+    with true <- Callback.exported?(type, :under, 2),
+         keys when is_list(keys) <- type.under(kind, higher) do
+      Map.take(lower, keys)
+    else
+      _all -> lower
     end
   end
 

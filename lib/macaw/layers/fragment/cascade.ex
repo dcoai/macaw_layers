@@ -27,9 +27,20 @@ defmodule Macaw.Layers.Fragment.Cascade do
     |> leaves(%{node: type.root(), element: nil, merge: :override}, stacked, [])
     |> Enum.sort()
     |> Enum.map(fn path ->
-      {layer, overrode} = Map.fetch!(provenance, path)
+      {layer, overrode} = origin(provenance, path)
       %{path: path, value: at(stacked, path), layer: layer, overrode: overrode}
     end)
+  end
+
+  # A leaf's `{layer, overrode}`: its own, else that of the nearest path above it, the
+  # value a layer set whole and the type normalized into parts (spec/02 §3.3).
+  defp origin(provenance, []), do: Map.fetch!(provenance, [])
+
+  defp origin(provenance, path) do
+    case Map.fetch(provenance, path) do
+      {:ok, origin} -> origin
+      :error -> origin(provenance, Enum.drop(path, -1))
+    end
   end
 
   @doc false
@@ -53,6 +64,8 @@ defmodule Macaw.Layers.Fragment.Cascade do
   # -- the walk ----------------------------------------------------------------------------
 
   defp node(type, kind, a, b, path) do
+    a = Compose.under(type, kind, a, b)
+
     (Map.keys(a) ++ Map.keys(b))
     |> Enum.uniq()
     |> Enum.reduce({%{}, []}, fn k, {acc, set} ->
@@ -71,6 +84,8 @@ defmodule Macaw.Layers.Fragment.Cascade do
   end
 
   defp key(type, kind, k, va, vb, path) do
+    {va, vb} = Compose.normalize(type, kind, k, va, vb)
+
     case Compose.spec(type, kind, k) do
       nil -> {vb, [path]}
       spec -> rule(type, spec, va, vb, path)
