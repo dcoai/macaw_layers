@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## v0.3.0 (2026-10-29)
+
+**Terms are the form** (dco-tek/macaw/macaw#188). A value's identity and validity are the BEAM term's own; JSON, and every other encoding, is an adapter at the edge. This release is breaking throughout; the guide below is what an adopter of 0.2.4 changes, and the entries after it are the detail.
+
+### Upgrading from 0.2.4
+
+1. **Digests change.** Every digest is now over the value itself (`Document.digest/1`), so a stored digest, cache key or golden written by 0.2.4 differs. Regenerate them; nothing reads an old digest.
+2. **Validity is judged on the value.** A type's `validate/1` receives the value (atom keys where the type has keys, string names, its own structs), never the map form. Judge a value built in Elixir with `Document.check(value, type)`. `Document.read/3` and `Form.from_json/3` are gone: read untrusted JSON with `Form.read(input, type, opts)`, whose gates (`Form.gates/3`) are the JSON adapter's.
+3. **Name maps.** A type whose maps hold names (a style named `"fill"`) implements `name_map?/1`; a fragment type does it in one line with `Fragment.name_map?/2`. Names in a name map are strings; an atom there is `{:type, :name}` when written.
+4. **Colors are terms.** A literal color is `%Color{}` with float fields; a string is never a color. Write literals with `~RGB"#3b6fa8"` in code and `Color.parse!/1` at an edge, and write CSS with `Color.to_css/1`. Helpers raise for text and say so.
+5. **A theme's names are strings,** the theme's own `name` and its `dark`/`light` included (`Theme.default().name == "default"`). Atom input is still accepted at construction and normalized there, so most construction code is unchanged; code that matches on `:default`, `:info` or a slot atom in a theme's fields or in the lists it answers (`slots/1`, `color_names/1`, `ramp_names/0`, faults) matches strings now. A host's `"info"` now replaces the library's.
+6. **Words are kept as given,** and **the JSON reader's vocabulary is the reader's:** an extension that writes atoms of its own into styles or defaults implements `Theme.Extension.words/0`, and `Theme.Document.from_json/2` is given `extensions:` to read them back.
+7. **Theme JSON is version 2.** A literal is tagged `{"$rgb": "#hex"}` and theme names are JSON strings. Version 1 documents written by 0.2.4 still read, through the version step, to the same theme; documents are written at version 2.
+8. **The palette stacks through `Theme.Style`.** Nothing changes for a theme without hooks; an adopter with its own style rules gives a fragment type through `Theme.Extension.style_type/0`.
+
+### Changes
 
 **Breaking:** every digest changes.
 
@@ -17,7 +32,7 @@ The JSON adapter tells a name map from a node by the type's positions (spec/01 �
 
 - An optional `Form` callback, `name_map?(path)`: whether the map at `path` holds names, never the type's keys. At a name map a string key is written and read as the name, whatever its spelling (a style named `"fill"`, a scale `"x"`), escaped as before when it starts with `$`; an atom key there is `{:type, :name}`, since names are strings. At a node, and for a type without the callback, keys are as before.
 - `Fragment.name_map?(type, path)`, from the type's specs: a `:union` or `:deep` key holds a name map whose entries are nodes of its `element` kind, for a fragment type to implement the callback in one line.
-- **Breaking:** `Theme.Document`'s `ramps`, `colors`, `styles` and `defaults` are name maps, and its value spells every name in them as a string: `node/1`, `fragment/1` and `to_map/1` write `"info"` where they wrote `:info`. `from_map/2` and `from_json/2` read a library spelling back as its atom in one place, so the theme read is unchanged, its JSON form is unchanged, and a theme entry of a store goes through a bundle's forms and import. A node with atom names still reads; `Form.to_map/2` of one is `{:type, :name}` at each.
+- **Breaking:** `Theme.Document`'s `ramps`, `colors`, `styles` and `defaults` are name maps, and its value spells every name in them as a string: `node/1`, `fragment/1` and `to_map/1` write `"info"` where they wrote `:info`, so a theme entry of a store goes through a bundle's forms and import. `Form.to_map/2` of a node with atom names is `{:type, :name}` at each. (#13, below, makes the theme itself hold strings, which retired the reading of a library spelling back as its atom.)
 - A use site's `local` is a fragment of the type: `Form.encode_term/3` takes the term's place below its tag (`at`), the reader asks `name_map?/1` at `{:tag, tag}` and the path within the payload, and `Fragment.name_map?/2` places a `$use` local at the root's positions, so a local holding a style named `"fill"` round-trips.
 
 **Breaking:** `%Macaw.Layers.Color{}` fields are floats (spec/04 §1.1, §1.6, #11, macaw#188).
