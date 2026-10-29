@@ -15,17 +15,20 @@ defmodule Macaw.Layers.Theme.Document do
     * the JSON form is `{"$version": v, "theme": {…}}` (`to_json/1`), each color a tag (a
       literal `$rgb`, `$color`, `$series`, `$ramp`, the transforms by name, `$blend`,
       `$contrast`) and pinned steps `$steps`, written and read by the JSON adapter
-      (`Macaw.Layers.Form`, `Macaw.Layers.Color.Form`), and
-      every name in `ramps`, `colors`, `styles` and `defaults` a string, the library's own
-      read back as its atom.
+      (`Macaw.Layers.Form`, `Macaw.Layers.Color.Form`), every name in `ramps`, `colors`,
+      `styles` and `defaults` a string, as the theme holds it, and every word (an entry's
+      keys and atom values) read from the library's vocabulary and the registered
+      extensions' words (`Macaw.Layers.Theme.Extension.words/0`).
 
   `from_map/2` judges the value as terms, after the version check, with no form written
   or read; `from_json/2` reads the JSON form through the adapter's gates (spec/01 §5: the
-  limits, the version, the migration) to the same value. Then: a node that is a **name**
-  reads as the built-in theme of that name, any other name is `{:unknown_theme, name}`; a
-  variable anywhere is `{:unresolved, :var, name}`, since nothing applies a theme; a key
-  the theme does not have is `:unknown_key`; and every contract a ramp, color or palette
-  entry breaks is `{:contract, message}` at `[:theme, :ramps | :colors | :styles, name]`.
+  limits, the version, the migration) to the same value. A name given both as its atom and
+  as its string in one name map of a value is `{:duplicate, :name}` at its path. Then: a
+  node that is a **name** reads as the built-in theme of that name, any other name is
+  `{:unknown_theme, name}`; a variable anywhere is `{:unresolved, :var, name}`, since
+  nothing applies a theme; a key the theme does not have is `:unknown_key`; and every
+  contract a ramp, color or palette entry breaks is `{:contract, message}` at
+  `[:theme, :ramps | :colors | :styles, name]`.
 
   The line is at version 2: a literal color is a term, tagged `$rgb` in the JSON form.
   Version 1 wrote it as CSS text; its step tags each string at a color position that
@@ -52,24 +55,20 @@ defmodule Macaw.Layers.Theme.Document do
 
   import Kernel, except: [node: 1]
 
-  alias Macaw.Layers.{Color, Document, Fault, Form, Fragment, Theme, Var, Version, Vocabulary}
+  alias Macaw.Layers.{Color, Document, Fault, Form, Fragment, Theme, Var, Version}
   alias Macaw.Layers.Color.Form, as: ColorForm
-  alias Macaw.Layers.Theme.{Palette, Words}
+  alias Macaw.Layers.Theme.{Extension, Names, Words}
 
   @unions [:ramps, :colors, :styles, :defaults]
   @furniture [:axis, :grid, :text, :background, :surface]
-  # A style series name a document spells beyond the built-in ten: a bounded set.
-  @style_series Macaw.Layers.Theme.Slots.max()
+  @series_max Macaw.Layers.Theme.Slots.max()
 
   # -- the document ------------------------------------------------------------------------
 
   @doc """
   The theme as its node: every field but `extensions`, an unset counterpart and empty
-  defaults left out, and every name in `ramps`, `colors`, `styles` and `defaults` spelled
-  as its string, since names are strings (spec/01 §1): a reader reads the library's back
-  as its atoms, and an extension's as its name when given the extension. Where the theme
-  holds a name as both its atom and its string, the atom's entry, the one it draws with, is
-  the name's.
+  defaults left out. Its names are strings, as the theme holds them (spec/04 §2.1), and
+  its words as given.
   """
   @spec node(Theme.t()) :: map()
   def node(%Theme{} = theme) do
@@ -78,26 +77,7 @@ defmodule Macaw.Layers.Theme.Document do
     |> Map.reject(fn {k, v} ->
       (k in [:dark, :light] and v == nil) or (k == :defaults and v == %{})
     end)
-    |> Map.new(fn
-      {k, names} when k in @unions and is_map(names) and not is_struct(names) ->
-        {k, spelled(names)}
-
-      field ->
-        field
-    end)
   end
-
-  # The strings first, so an atom spelled the same is the one kept.
-  defp spelled(names) do
-    names
-    |> Enum.sort_by(fn {name, _entry} -> is_atom(name) end)
-    |> Map.new(fn {name, entry} -> {spell(name), entry} end)
-  end
-
-  defp spell(name) when is_atom(name) and name not in [nil, true, false],
-    do: Atom.to_string(name)
-
-  defp spell(name), do: name
 
   @doc "`%{theme: node}`: a store's fragment of kind `:theme`."
   @spec fragment(Theme.t()) :: %{theme: map()}
@@ -107,9 +87,17 @@ defmodule Macaw.Layers.Theme.Document do
   @spec to_map(Theme.t()) :: %{version: pos_integer(), theme: map()}
   def to_map(%Theme{} = theme), do: %{version: current(), theme: node(theme)}
 
-  @doc "The JSON document, `{:ok, json}`, stamped `\"$version\"`."
+  @doc """
+  The JSON document, `{:ok, json}`, stamped `\"$version\"`, its words written with the
+  theme's extensions' (`Macaw.Layers.Theme.Extension.words/0`).
+  """
   @spec to_json(Theme.t()) :: {:ok, String.t()} | {:error, [Fault.t(), ...]}
-  def to_json(%Theme{} = theme), do: Form.to_json(fragment(theme), __MODULE__)
+  def to_json(%Theme{} = theme) do
+    Form.to_json(fragment(theme), __MODULE__, vocabulary: words(theme.extensions))
+  end
+
+  defp words(extensions) when is_list(extensions), do: Extension.words(extensions)
+  defp words(_other), do: %{}
 
   @doc """
   The theme a document value or a theme fragment holds, judged as terms, or every fault.
@@ -135,12 +123,17 @@ defmodule Macaw.Layers.Theme.Document do
   @doc """
   The theme a JSON document holds: read through the JSON adapter (`Macaw.Layers.Form.read/3`:
   every gate, then the value, judged), then built as `from_map/2` builds it. `limits:` as
-  `Macaw.Layers.Form.gates/3` takes them, and `extensions:` as `from_map/2`.
+  `Macaw.Layers.Form.gates/3` takes them, and `extensions:` as `from_map/2`: the reader's
+  vocabulary is the library's words and these extensions' (`Extension.words/0`), so an
+  adopter's words read back only with its extension given, and no other atom is made.
   """
   @spec from_json(String.t(), keyword()) :: {:ok, Theme.t()} | {:error, [Fault.t(), ...]}
   def from_json(json, opts \\ []) when is_binary(json) do
-    with {:ok, %{theme: node}} <- Form.read(json, __MODULE__, Keyword.take(opts, [:limits])),
-         do: build(node, Keyword.get(opts, :extensions, []))
+    extensions = Keyword.get(opts, :extensions, [])
+    read = [vocabulary: words(extensions)] ++ Keyword.take(opts, [:limits])
+
+    with {:ok, %{theme: node}} <- Form.read(json, __MODULE__, read),
+         do: build(node, extensions)
   end
 
   # -- the theme ---------------------------------------------------------------------------
@@ -153,9 +146,8 @@ defmodule Macaw.Layers.Theme.Document do
   end
 
   defp build(node, extensions) when is_map(node) do
-    node = names(node, extensions)
-
-    with :ok <- faults(variables(node, [:theme])),
+    with {:ok, node} <- names(node),
+         :ok <- faults(variables(node, [:theme])),
          :ok <- faults(shape(node)) do
       theme = Theme.build(%{Theme.default() | dark: nil}, Map.put(node, :extensions, extensions))
 
@@ -178,58 +170,13 @@ defmodule Macaw.Layers.Theme.Document do
   defp plural(:color), do: :colors
   defp plural(:style), do: :styles
 
-  # The names a node spells in its name maps, read in one place, whichever way the node
-  # came: a name spelled like one of the library's (`Words`) is its atom, and a style name
-  # the palette's, a style series by its index and an extension's name by its spelling. A
-  # name given both as its atom and as its string is the atom's, as `node/1` writes it.
-  defp names(node, extensions) do
-    @unions
-    |> Enum.reduce(node, fn key, node ->
-      case node do
-        %{^key => names} when is_map(names) and not is_struct(names) ->
-          words =
-            names
-            |> Enum.sort_by(fn {name, _entry} -> is_atom(name) end)
-            |> Map.new(fn {name, entry} -> {word(name), entry} end)
-
-          %{node | key => words}
-
-        _other ->
-          node
-      end
-    end)
-    |> palette_names(extensions)
-  end
-
-  defp word(name) when is_binary(name) do
-    case Vocabulary.fetch(Words.keys(), name) do
-      {:ok, word} -> word
-      :error -> name
-    end
-  end
-
-  defp word(name), do: name
-
-  defp palette_names(%{styles: styles} = node, extensions) when is_map(styles) do
-    extra = Theme.extra_styles(%Theme{extensions: extensions}) |> Map.keys()
-
-    styles =
-      Map.new(styles, fn
-        {name, entry} when is_binary(name) -> {palette_name(name, extra), entry}
-        other -> other
-      end)
-
-    %{node | styles: styles}
-  end
-
-  defp palette_names(node, _extensions), do: node
-
-  defp palette_name(name, extra) do
-    with "style_" <> digits <- name,
-         {k, ""} when k >= 1 and k <= @style_series <- Integer.parse(digits) do
-      Palette.series_name(k)
-    else
-      _ -> Enum.find(extra, name, &(Atom.to_string(&1) == name))
+  # The node's names as strings, by the theme's one normalization (`Theme.Names`), whichever
+  # way the node came: the JSON form's are strings already, and a value built in Elixir may
+  # spell them as atoms. A name given both ways in one map is `{:duplicate, :name}`.
+  defp names(node) do
+    case Names.normalize(node) do
+      {:ok, node} -> {:ok, node}
+      {:duplicate, [key, name]} -> {:error, [{[:theme, key, name], {:duplicate, :name}}]}
     end
   end
 
@@ -254,8 +201,8 @@ defmodule Macaw.Layers.Theme.Document do
     end)
   end
 
-  defp field(:series, series) when is_list(series) and length(series) > @style_series,
-    do: [{[:theme, :series], {:limit, :series, @style_series, length(series)}}]
+  defp field(:series, series) when is_list(series) and length(series) > @series_max,
+    do: [{[:theme, :series], {:limit, :series, @series_max, length(series)}}]
 
   # The series and the furniture are literal colors, terms: a string is never one.
   defp field(:series, [_ | _] = series) do

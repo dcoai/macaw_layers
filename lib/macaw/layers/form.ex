@@ -79,19 +79,31 @@ defmodule Macaw.Layers.Form do
   @callback name_map?(path :: [term()]) :: boolean()
   @optional_callbacks encode_value: 1, decode_value: 2, name_map?: 1
 
-  @typedoc "`gates/3`'s and `read/3`'s options."
-  @type option :: {:limits, keyword() | map()}
+  @typedoc """
+  Words a reader takes beyond the type's own tables, merged over them: `keys`, read as
+  atom keys, and `atoms`, the atoms a `$atom` may spell. Lists of atoms, given by code
+  (an adopter's registered words), never by a document.
+  """
+  @type vocabulary :: %{optional(:keys) => [atom()], optional(:atoms) => [atom()]}
 
-  @doc "The value's map form: `{:ok, map}`, or every value and key without one, by path."
-  @spec to_map(map(), module()) :: {:ok, map()} | {:error, [Fault.t(), ...]}
-  def to_map(value, type) when is_map(value) and not is_struct(value) do
-    case encode(value, [], type, names(type), true) do
+  @typedoc "`gates/3`'s and `read/3`'s options; the codec takes `vocabulary:`."
+  @type option :: {:limits, keyword() | map()} | {:vocabulary, vocabulary()}
+
+  @doc """
+  The value's map form: `{:ok, map}`, or every value and key without one, by path.
+  `vocabulary:` the words the type's keys are taken with (see `read/3`).
+  """
+  @spec to_map(map(), module(), [option()]) :: {:ok, map()} | {:error, [Fault.t(), ...]}
+  def to_map(value, type, opts \\ [])
+
+  def to_map(value, type, opts) when is_map(value) and not is_struct(value) do
+    case encode(value, [], reader(type, opts), names(type), true) do
       {map, []} -> {:ok, map}
       {_map, faults} -> {:error, Fault.sort(faults)}
     end
   end
 
-  def to_map(_value, _type), do: {:error, [{[], {:type, :map}}]}
+  def to_map(_value, _type, _opts), do: {:error, [{[], {:type, :map}}]}
 
   @doc """
   One term's map form, for a type writing its own tag's payload (spec/01 §6): `{:ok, form}`,
@@ -107,7 +119,7 @@ defmodule Macaw.Layers.Form do
   def encode_term(term, type, at \\ nil) do
     names = if at == nil, do: &nodes/1, else: placed(names(type), at)
 
-    case encode(term, [], type, names, false) do
+    case encode(term, [], reader(type, []), names, false) do
       {form, []} -> {:ok, form}
       {_form, faults} -> {:error, Fault.sort(faults)}
     end
@@ -115,29 +127,32 @@ defmodule Macaw.Layers.Form do
 
   @doc """
   The value a map form holds: its tags held to the type's table, its keys read against the
-  type's keys, its `$atom`s against the type's atoms; `{:ok, value}` or every fault.
+  type's keys, its `$atom`s against the type's atoms, each with the `vocabulary:` given
+  (see `read/3`); `{:ok, value}` or every fault.
   """
-  @spec from_map(map(), module()) :: {:ok, map()} | {:error, [Fault.t(), ...]}
-  def from_map(map, type) when is_map(map) and not is_struct(map) do
+  @spec from_map(map(), module(), [option()]) :: {:ok, map()} | {:error, [Fault.t(), ...]}
+  def from_map(map, type, opts \\ [])
+
+  def from_map(map, type, opts) when is_map(map) and not is_struct(map) do
     with {:ok, map} <- Tags.read(map, type.tags()) do
-      case decode(map, [], type, names(type), true) do
+      case decode(map, [], reader(type, opts), names(type), true) do
         {value, []} -> {:ok, value}
         {_value, faults} -> {:error, Fault.sort(faults)}
       end
     end
   end
 
-  def from_map(_map, _type), do: {:error, [{[], {:type, :map}}]}
+  def from_map(_map, _type, _opts), do: {:error, [{[], {:type, :map}}]}
 
   @doc """
   The value's JSON form, stamped `"$version"` with the type's current version where the
   type has a version line (`c:Macaw.Layers.Version.current/0`): `{:ok, json}`, or every
   value and key without a form, by path. The value is not judged here: that is
-  `Macaw.Layers.Document.check/2`.
+  `Macaw.Layers.Document.check/2`. `vocabulary:` as `to_map/3` takes it.
   """
-  @spec to_json(map(), module()) :: {:ok, binary()} | {:error, [Fault.t(), ...]}
-  def to_json(value, type) do
-    with {:ok, map} <- to_map(value, type), do: {:ok, JSON.encode!(stamp(map, type))}
+  @spec to_json(map(), module(), [option()]) :: {:ok, binary()} | {:error, [Fault.t(), ...]}
+  def to_json(value, type, opts \\ []) do
+    with {:ok, map} <- to_map(value, type, opts), do: {:ok, JSON.encode!(stamp(map, type))}
   end
 
   defp stamp(map, type) do
@@ -183,14 +198,47 @@ defmodule Macaw.Layers.Form do
   `input` is a JSON document, a binary, or its decoded map form. `type` implements this
   behavior, `Macaw.Layers.Version` and `Macaw.Layers.Document`. `limits:` as `gates/3`
   takes them.
+
+  **The vocabulary is the reader's.** The words a document may spell as atoms are the
+  type's tables (`c:keys/0`, `c:atoms/0`) and, with `vocabulary: %{keys: [...], atoms:
+  [...]}`, the words given there, merged over them: an adopter's registered words, given
+  by code. No atom is made from the document beyond those tables. A key outside them is
+  read as its string, and a `$atom` outside them is `{:enum, atoms}` at its path.
   """
   @spec read(binary() | map(), module(), [option()]) :: {:ok, term()} | {:error, [Fault.t(), ...]}
   def read(input, type, opts \\ []) when is_atom(type) do
     with {:ok, map} <- gates(input, type, opts),
-         {:ok, value} <- from_map(Map.delete(map, @stamp), type) do
+         {:ok, value} <- from_map(Map.delete(map, @stamp), type, opts) do
       Document.check(value, type)
     end
   end
+
+  # The type and the tables it reads with: its own, the `vocabulary:` merged over them.
+  defp reader(type, opts) do
+    words = Keyword.get(opts, :vocabulary, %{})
+
+    if not vocabulary?(words),
+      do:
+        raise(
+          ArgumentError,
+          "vocabulary: is %{keys: [atom], atoms: [atom]}, got #{inspect(words)}"
+        )
+
+    %{
+      type: type,
+      keys: Map.merge(type.keys(), Vocabulary.table(Map.get(words, :keys, []))),
+      atoms: Map.merge(type.atoms(), Vocabulary.table(Map.get(words, :atoms, [])))
+    }
+  end
+
+  defp vocabulary?(%{} = words) when not is_struct(words) do
+    Enum.all?(words, fn {k, v} ->
+      k in [:keys, :atoms] and is_list(v) and
+        Enum.all?(v, &(is_atom(&1) and &1 not in [nil, true, false]))
+    end)
+  end
+
+  defp vocabulary?(_other), do: false
 
   # -- the gates ------------------------------------------------------------------------
 
@@ -276,7 +324,7 @@ defmodule Macaw.Layers.Form do
     end
   end
 
-  defp own(type, term) do
+  defp own(%{type: type}, term) do
     if Callback.exported?(type, :encode_value, 1), do: type.encode_value(term), else: :default
   end
 
@@ -301,7 +349,7 @@ defmodule Macaw.Layers.Form do
   end
 
   defp term(v, path, type, names, root?) when is_map(v) and not is_struct(v) do
-    keys = if names.(path), do: :names, else: type.keys()
+    keys = if names.(path), do: :names, else: type.keys
 
     {pairs, faults} =
       v
@@ -374,7 +422,7 @@ defmodule Macaw.Layers.Form do
   defp decode(leaf, _path, _type, _names, _root?), do: {leaf, []}
 
   defp tagged("$atom", spelling, path, type) do
-    atoms = type.atoms()
+    atoms = type.atoms
 
     case Vocabulary.fetch(atoms, spelling) do
       {:ok, atom} -> {atom, []}
@@ -395,7 +443,7 @@ defmodule Macaw.Layers.Form do
   # the tag, as `encode_term/3` writes them.
   defp tagged(tag, payload, path, type) do
     below = length(path) + 1
-    at = placed(names(type), [{:tag, tag}])
+    at = placed(names(type.type), [{:tag, tag}])
     names = fn path -> at.(Enum.drop(path, below)) end
     {payload, faults} = decode(payload, path ++ [tag], type, names, false)
 
@@ -403,8 +451,8 @@ defmodule Macaw.Layers.Form do
       faults != [] ->
         {payload, faults}
 
-      Callback.exported?(type, :decode_value, 2) ->
-        case type.decode_value(tag, payload) do
+      Callback.exported?(type.type, :decode_value, 2) ->
+        case type.type.decode_value(tag, payload) do
           {:ok, value} -> {value, []}
           :default -> {payload, [{path, {:unknown_tag, tag}}]}
         end
@@ -415,7 +463,7 @@ defmodule Macaw.Layers.Form do
   end
 
   defp data(map, path, type, names, root?) do
-    keys = if names.(path), do: :names, else: type.keys()
+    keys = if names.(path), do: :names, else: type.keys
 
     {pairs, faults} =
       map

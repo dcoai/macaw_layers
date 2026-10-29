@@ -97,7 +97,7 @@ defmodule Macaw.Layers.Color.Typed do
 
   @doc false
   @spec name?(term()) :: boolean()
-  # A color's name: the library's atom, or the string of one a theme declares.
+  # A color's name: a string, as a theme holds it, or an atom read as its string.
   def name?(name) when is_binary(name), do: name != ""
   def name?(name), do: is_atom(name) and name not in @not_names
 

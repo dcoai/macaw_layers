@@ -201,6 +201,47 @@ defmodule Macaw.Layers.FormTest do
              {:error, [{[:at], {:type, :time}}]}
   end
 
+  @tag verifies: "forms-vocabulary"
+  test "the vocabulary is the reader's: words given by code read as atoms, and no others" do
+    # Words the type's tables lack, as an adopter registers them: existing atoms, given
+    # by code. The document's other spellings are fresh, so no atom can be made of them.
+    words = %{keys: [:caption], atoms: [:figure]}
+    fresh_key = Atoms.fresh()
+    fresh_atom = Atoms.fresh()
+    map = %{"caption" => %{"$atom" => "figure"}, "kind" => %{"$atom" => "chart"}}
+
+    assert Form.from_map(map, Card, vocabulary: words) ==
+             {:ok, %{caption: :figure, kind: :chart}}
+
+    # Without them the key stays its string and the atom is the enum fault, the type's own
+    # atoms read as before.
+    assert Form.from_map(map, Card) ==
+             {:error, [{["caption"], {:enum, [:chart, :table, :text]}}]}
+
+    assert {:ok, json} = Form.to_json(%{caption: :figure, kind: :chart}, Card, vocabulary: words)
+    assert Form.read(json, Card, vocabulary: words) == {:ok, %{caption: :figure, kind: :chart}}
+    assert {:error, [{["caption"], {:enum, _}}]} = Form.read(json, Card)
+
+    # A word the vocabulary lacks is refused at its path, a fresh spelling made no atom.
+    assert Form.from_map(
+             %{fresh_key => 1, "kind" => %{"$atom" => fresh_atom}},
+             Card,
+             vocabulary: words
+           ) == {:error, [{[:kind], {:enum, [:chart, :figure, :table, :text]}}]}
+
+    assert Atoms.made([fresh_key, fresh_atom]) == []
+
+    # Writing: an atom key is the type's or the vocabulary's, else :unknown_key.
+    assert Form.to_map(%{caption: 1}, Card) == {:error, [{[:caption], :unknown_key}]}
+    assert Form.to_map(%{caption: 1}, Card, vocabulary: words) == {:ok, %{"caption" => 1}}
+
+    for bad <- [[keys: [:a]], %{keys: ["a"]}, %{words: [:a]}, %{atoms: [nil]}] do
+      assert_raise ArgumentError, ~r/vocabulary: is %\{keys: \[atom\], atoms: \[atom\]\}/, fn ->
+        Form.from_map(map, Card, vocabulary: bad)
+      end
+    end
+  end
+
   @tag verifies: "forms-keys"
   test "keys read against the type's table, and a value's keys are checked when written" do
     assert Form.from_map(%{"title" => 1, "ttle" => 2, "$$x" => 3}, Card) ==

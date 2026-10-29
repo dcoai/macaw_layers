@@ -2,6 +2,9 @@ defmodule Macaw.Layers.Theme.Palette do
   @moduledoc false
 
   import Macaw.Layers.Names, only: [is_name: 1]
+
+  alias Macaw.Layers.Theme.Names
+
   # The style palette of a theme (spec/04 §2.4, visualize D-171, D-172): its fixed names in five
   # groups, the built-in entries every built-in theme shares, written in compound parts, and
   # the contracts an entry holds. `check/1` answers the first entry that breaks its
@@ -11,11 +14,12 @@ defmodule Macaw.Layers.Theme.Palette do
   #
   # Ported from visualize's `Visualize.Theme.Palette`.
 
-  @roles [:good, :warning, :bad, :info, :neutral]
-  @states [:hover, :focused, :selected, :active, :disabled, :muted, :emphasis, :breakpoint]
-  @furniture [:axis, :grid, :label, :title, :caption, :value, :annotation]
-  @modifiers [:bold, :italic, :thin, :thick, :dashed, :dotted, :outline]
-  @text_furniture @furniture -- [:grid]
+  # The palette's names, strings as every name of a theme is (spec/04 §2.1).
+  @roles ~w(good warning bad info neutral)
+  @states ~w(hover focused selected active disabled muted emphasis breakpoint)
+  @furniture ~w(axis grid label title caption value annotation)
+  @modifiers ~w(bold italic thin thick dashed dotted outline)
+  @text_furniture @furniture -- ["grid"]
 
   # The parts that carry hue: a paint's color, which everything else an entry says is
   # visible without.
@@ -40,7 +44,7 @@ defmodule Macaw.Layers.Theme.Palette do
            end)
 
   @label %{
-    fill: %{type: :solid, color: {:color, :text}},
+    fill: %{type: :solid, color: {:color, "text"}},
     font: %{family: :font_family, size: :label_size}
   }
 
@@ -55,73 +59,73 @@ defmodule Macaw.Layers.Theme.Palette do
                   }}
                end) ++
                [
-                 hover: %{stroke: %{type: :solid, color: {:color, :text}, width: 2}},
-                 focused: %{
-                   stroke: %{type: :solid, color: {:color, :text}, width: 2, dash: "4 2"}
-                 },
+                 {"hover", %{stroke: %{type: :solid, color: {:color, "text"}, width: 2}}},
+                 {"focused",
+                  %{stroke: %{type: :solid, color: {:color, "text"}, width: 2, dash: "4 2"}}},
                  # Heavier only: no color of its own to paint over a stroked mark's.
-                 selected: %{stroke: %{width: 2}},
-                 active: %{stroke: %{type: :solid, color: {:color, :text}, width: 3}},
-                 disabled: %{opacity: 0.4, stroke: %{dash: "2 2"}},
+                 {"selected", %{stroke: %{width: 2}}},
+                 {"active", %{stroke: %{type: :solid, color: {:color, "text"}, width: 3}}},
+                 {"disabled", %{opacity: 0.4, stroke: %{dash: "2 2"}}},
                  # The board's dim of today, so a muted row looks as it did.
-                 muted: %{opacity: 0.25},
-                 emphasis: %{stroke: %{width: 3}, font: %{weight: :bold}},
-                 breakpoint: %{
-                   stroke: %{type: :solid, color: {:color, :bad}, width: 2, dash: "6 2 2 2"}
-                 },
+                 {"muted", %{opacity: 0.25}},
+                 {"emphasis", %{stroke: %{width: 3}, font: %{weight: :bold}}},
+                 {"breakpoint",
+                  %{stroke: %{type: :solid, color: {:color, "bad"}, width: 2, dash: "6 2 2 2"}}},
                  # The furniture styles.
-                 axis: %{
-                   stroke: %{type: :solid, color: {:color, :axis}},
-                   fill: %{type: :solid, color: {:color, :text}},
-                   font: %{family: :font_family, size: :font_size}
-                 },
-                 grid: %{stroke: %{type: :solid, color: {:color, :grid}}},
-                 label: @label,
-                 title: %{
-                   @label
-                   | font: %{family: :font_family, size: :title_size, weight: :bold}
-                 },
-                 caption: %{
-                   fill: %{type: :solid, color: {:color, :text}},
-                   font: %{family: :font_family, size: :font_size, style: :italic}
-                 },
-                 value: %{
-                   fill: %{type: :solid, color: {:color, :text}},
-                   font: %{family: :font_family, size: :title_size, weight: :medium}
-                 },
-                 annotation: %{
-                   fill: %{type: :solid, color: {:color, :text}},
-                   font: %{family: :font_family, size: :font_size}
-                 },
+                 {"axis",
+                  %{
+                    stroke: %{type: :solid, color: {:color, "axis"}},
+                    fill: %{type: :solid, color: {:color, "text"}},
+                    font: %{family: :font_family, size: :font_size}
+                  }},
+                 {"grid", %{stroke: %{type: :solid, color: {:color, "grid"}}}},
+                 {"label", @label},
+                 {"title",
+                  %{@label | font: %{family: :font_family, size: :title_size, weight: :bold}}},
+                 {"caption",
+                  %{
+                    fill: %{type: :solid, color: {:color, "text"}},
+                    font: %{family: :font_family, size: :font_size, style: :italic}
+                  }},
+                 {"value",
+                  %{
+                    fill: %{type: :solid, color: {:color, "text"}},
+                    font: %{family: :font_family, size: :title_size, weight: :medium}
+                  }},
+                 {"annotation",
+                  %{
+                    fill: %{type: :solid, color: {:color, "text"}},
+                    font: %{family: :font_family, size: :font_size}
+                  }},
                  # The modifiers: each changes one thing, to be stacked on a look —
-                 # `[:bad, :outline]` is the bad look's outline alone.
-                 bold: %{font: %{weight: :bold}},
-                 italic: %{font: %{style: :italic}},
-                 thin: %{stroke: %{width: 1}},
-                 thick: %{stroke: %{width: 3}},
-                 dashed: %{stroke: %{dash: "6 3"}},
-                 dotted: %{stroke: %{dash: "1 3", cap: :round}},
-                 outline: %{fill: %{type: :none}}
+                 # `["bad", "outline"]` is the bad look's outline alone.
+                 {"bold", %{font: %{weight: :bold}}},
+                 {"italic", %{font: %{style: :italic}}},
+                 {"thin", %{stroke: %{width: 1}}},
+                 {"thick", %{stroke: %{width: 3}}},
+                 {"dashed", %{stroke: %{dash: "6 3"}}},
+                 {"dotted", %{stroke: %{dash: "1 3", cap: :round}}},
+                 {"outline", %{fill: %{type: :none}}}
                ]
            )
 
   @doc false
   # The palette every built-in theme defines (spec/04 §2.4).
-  @spec builtin() :: %{atom() => map()}
+  @spec builtin() :: %{String.t() => map()}
   def builtin, do: @builtin
 
   # The print theme's role fills (spec/04 §2.5): hatches of the role's color, so a
-  # role keeps its meaning on a grayscale copy; `:neutral` stays solid.
+  # role keeps its meaning on a grayscale copy; `"neutral"` stays solid.
   @hatches %{
-    good: %{pattern: :lines, angle: 45},
-    warning: %{pattern: :lines, angle: 135},
-    bad: %{pattern: :crosshatch, angle: 45},
-    info: %{pattern: :dots, angle: 45}
+    "good" => %{pattern: :lines, angle: 45},
+    "warning" => %{pattern: :lines, angle: 135},
+    "bad" => %{pattern: :crosshatch, angle: 45},
+    "info" => %{pattern: :dots, angle: 45}
   }
 
   @doc false
   # The palette of the print theme: the built-in one with its role fills hatched.
-  @spec print() :: %{atom() => map()}
+  @spec print() :: %{String.t() => map()}
   def print do
     Enum.reduce(@hatches, @builtin, fn {role, hatch}, palette ->
       fill = Map.merge(%{type: :hatch, color: {:color, role}, spacing: 6, width: 1}, hatch)
@@ -130,19 +134,19 @@ defmodule Macaw.Layers.Theme.Palette do
   end
 
   @doc false
-  @spec roles() :: [atom(), ...]
+  @spec roles() :: [String.t(), ...]
   def roles, do: @roles
 
   @doc false
-  @spec states() :: [atom(), ...]
+  @spec states() :: [String.t(), ...]
   def states, do: @states
 
   @doc false
-  @spec furniture() :: [atom(), ...]
+  @spec furniture() :: [String.t(), ...]
   def furniture, do: @furniture
 
   @doc false
-  @spec modifiers() :: [atom(), ...]
+  @spec modifiers() :: [String.t(), ...]
   def modifiers, do: @modifiers
 
   @doc false
@@ -151,7 +155,7 @@ defmodule Macaw.Layers.Theme.Palette do
   # merge rule — each name the palette's own entry, else the built-in one. `{:error,
   # message}` for a name the palette does not have, a list that reaches itself, or an
   # element that is no style.
-  @spec compose(map(), atom() | String.t(), map()) :: {:ok, map()} | {:error, String.t()}
+  @spec compose(map(), String.t(), map()) :: {:ok, map()} | {:error, String.t()}
   def compose(styles, name, extra \\ %{}), do: compose(styles, extra, name, [])
 
   defp compose(styles, extra, name, seen) do
@@ -180,19 +184,9 @@ defmodule Macaw.Layers.Theme.Palette do
     end)
   end
 
-  # A document's entry names a palette style by its string: the palette's names are
-  # atoms, found by spelling.
-  defp layer(styles, extra, name, seen) when is_binary(name) do
-    found =
-      Enum.find(Map.keys(styles) ++ names(series(styles), extra), fn key ->
-        is_atom(key) and Atom.to_string(key) == name
-      end)
-
-    compose(styles, extra, found || name, seen)
-  end
-
-  defp layer(styles, extra, name, seen) when is_name(name) and name not in [nil, true, false],
-    do: compose(styles, extra, name, seen)
+  # A palette name: a string, as every name of a theme is, an atom read as its string.
+  defp layer(styles, extra, name, seen) when is_name(name),
+    do: compose(styles, extra, Names.name(name), seen)
 
   defp layer(_styles, _extra, node, _seen) when is_map(node) and not is_struct(node),
     do: {:ok, node}
@@ -215,9 +209,9 @@ defmodule Macaw.Layers.Theme.Palette do
   end
 
   @doc false
-  # The style series names a palette holds, `:style_1` up to the first gap, in order; the
+  # The style series names a palette holds, `"style_1"` up to the first gap, in order; the
   # default palette's when it holds none (spec/04 §2.4, Fallback).
-  @spec series(map()) :: [atom()]
+  @spec series(map()) :: [String.t()]
   def series(styles) do
     case own_series(styles) do
       [] -> own_series(@builtin)
@@ -232,25 +226,25 @@ defmodule Macaw.Layers.Theme.Palette do
   end
 
   @doc false
-  @spec series_name(pos_integer()) :: atom()
+  @spec series_name(pos_integer()) :: String.t()
   def series_name(k), do: Macaw.Layers.Theme.Slots.style(k)
 
   @doc false
   # The palette's names but its series, which a theme cannot add to (spec/04 §2.4).
-  @spec fixed_names() :: [atom(), ...]
+  @spec fixed_names() :: [String.t(), ...]
   def fixed_names, do: @roles ++ @states ++ @furniture ++ @modifiers
 
   @doc false
   # Every name of the palette whose style series is `series`, in the order of §2.4, then
   # the extensions' names, sorted.
-  @spec names([atom()], map()) :: [atom()]
+  @spec names([String.t()], map()) :: [String.t()]
   def names(series, extra \\ %{}),
     do: series ++ @roles ++ @states ++ @furniture ++ @modifiers ++ Enum.sort(Map.keys(extra))
 
   @doc false
   # `:ok`, or `{:error, {:style, name}, message}` for the first entry that breaks its
   # contract, in the order of `names/1` and then any name the palette does not know.
-  @spec check(map(), map()) :: :ok | {:error, {:style, atom()}, String.t()}
+  @spec check(map(), map()) :: :ok | {:error, {:style, String.t()}, String.t()}
   def check(styles, extra \\ %{}) when is_map(styles) do
     case violations(styles, extra) do
       [] -> :ok
@@ -260,7 +254,7 @@ defmodule Macaw.Layers.Theme.Palette do
 
   @doc false
   # Every entry that breaks its contract, `{{:style, name}, message}`, in `check/1`'s order.
-  @spec violations(map(), map()) :: [{{:style, atom()}, String.t()}]
+  @spec violations(map(), map()) :: [{{:style, String.t()}, String.t()}]
   def violations(styles, extra \\ %{}) when is_map(styles) do
     own = own_series(styles)
     known = names(own, extra)
@@ -293,7 +287,7 @@ defmodule Macaw.Layers.Theme.Palette do
   # A list — or a name — is held to the contracts by what it stacks into; a node
   # in it, as a node alone, may not use `extends`.
   defp entry(name, entry, styles, extra)
-       when is_list(entry) or (is_atom(entry) and entry != nil) do
+       when is_list(entry) or is_name(entry) do
     with :ok <- no_extends(List.wrap(entry)),
          {:ok, node} <- layer(styles, extra, entry, [name]) do
       entry(name, node, styles, extra)
@@ -329,10 +323,10 @@ defmodule Macaw.Layers.Theme.Palette do
   # any other as the grid is.
   defp group_of(name, extra) do
     case Map.get(extra, name) do
-      {:state, _entry} -> :hover
-      {:modifier, _entry} -> :bold
-      {:furniture, entry} when is_map(entry) and is_map_key(entry, :font) -> :label
-      {:furniture, _entry} -> :grid
+      {:state, _entry} -> "hover"
+      {:modifier, _entry} -> "bold"
+      {:furniture, entry} when is_map(entry) and is_map_key(entry, :font) -> "label"
+      {:furniture, _entry} -> "grid"
       nil -> name
     end
   end
@@ -394,7 +388,7 @@ defmodule Macaw.Layers.Theme.Palette do
            "stroke.dash or effect; got #{inspect(entry)}"}
   end
 
-  defp group(:grid, entry) do
+  defp group("grid", entry) do
     case color(entry, :stroke) do
       value when value in [nil, :none, false, true] ->
         {:error,
@@ -528,12 +522,12 @@ defmodule Macaw.Layers.Theme.Palette do
   defp unknown(name, own) do
     case series_index(name) do
       k when is_integer(k) and k >= 1 ->
-        "the style series runs :style_1 to :style_n with no gap, and " <>
+        "the style series runs \"style_1\" to \"style_n\" with no gap, and " <>
           "#{inspect(series_name(length(own) + 1))} is missing below #{inspect(name)}"
 
       _ ->
         "is not a name of the palette; a theme cannot add one. The names are the style " <>
-          "series :style_1 … :style_n, the roles #{list(@roles)}, the states #{list(@states)}, " <>
+          "series \"style_1\" … \"style_n\", the roles #{list(@roles)}, the states #{list(@states)}, " <>
           "the furniture #{list(@furniture)} and the modifiers #{list(@modifiers)}"
     end
   end

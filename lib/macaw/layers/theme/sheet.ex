@@ -99,14 +99,14 @@ defmodule Macaw.Layers.Theme.Sheet do
   # order, each followed by the steps it pins.
   defp declarations(theme) do
     slots = Theme.slots(theme)
-    spelled = MapSet.new(slots, &Atom.to_string/1)
+    taken = MapSet.new(slots)
 
     own =
       theme
       |> Table.own_colors()
       |> Map.keys()
-      |> Enum.reject(&(to_string(&1) in spelled))
-      |> Enum.sort_by(&to_string/1)
+      |> Enum.reject(&(&1 in taken))
+      |> Enum.sort()
 
     for name <- slots ++ own, line <- declaration(theme, name), do: line
   end

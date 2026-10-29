@@ -174,7 +174,7 @@ over generated documents and versions, migrating gives the same result twice, an
 
 Faults from one gate stop the gates after it: a document over a limit is not decoded, one that does not decode has no version to read, and one the recount refuses is not read further. `gates/3` returns `{:ok, map}`, the map form at the type's current version, its stamp included, or `{:error, faults}`.
 
-**`Macaw.Layers.Form.read/3`** (`read(input, type, opts)`) reads the value a document from elsewhere holds: the gates, then the value from the map form by `from_map/2` (§6), the stamp dropped, then the value judged by `Document.check/2`. It returns `{:ok, value}`, or the faults of the first step that refuses: a gate's, the map form's (a tag, a key or an atom the type does not read), or the type's. The type implements `Version`, `Form` and `Document`.
+**`Macaw.Layers.Form.read/3`** (`read(input, type, opts)`) reads the value a document from elsewhere holds: the gates, then the value from the map form by `from_map/3` (§6), the stamp dropped, then the value judged by `Document.check/2`. It returns `{:ok, value}`, or the faults of the first step that refuses: a gate's, the map form's (a tag, a key or an atom the type does not read), or the type's. The type implements `Version`, `Form` and `Document`. Besides `limits:`, it takes `vocabulary:`, the words the reader may make atoms of beyond the type's own (§6): **the vocabulary is the reader's**, a property of reading an encoding, never of the value.
 
 **The limits** (`Macaw.Layers.Limits`) are the adapter's:
 
@@ -243,15 +243,21 @@ unknown_keys/3 refuses each key not among the known ones at its own key under th
 - The **JSON form** is the map form encoded, stamped with the type's version.
 
 `Macaw.Layers.Form` is the JSON adapter:
-- **The codec,** `to_map/2` and `from_map/2`, converts between the value and the map form, exact inverses with no gates and no validation: for a value with a form, `from_map(to_map(v)) == {:ok, v}`; for a map form `to_map/2` wrote, `to_map(from_map(m)) == {:ok, m}`. `encode_term/3` (`encode_term(term, type, at \\ nil)`) writes one term's map form, `{:ok, form}` or its faults by path from the term, for a type writing a payload of its own tag whose keys are the tag's, not data (spec/02 §9); `at` is the term's place below the tag, as below.
-- **Writing,** `to_json/2`: the value's map form, encoded, with the stamp `"$version"` set to the type's current version where the type has a version line (it exports `current/0`, found as §9 says) and no stamp where it has none. A value with no form is refused here, at its path, though `Document.check/2` holds it valid: the adapter's limits on what it can write are not the value's.
+- **The codec,** `to_map/3` and `from_map/3`, converts between the value and the map form, exact inverses with no gates and no validation: for a value with a form, `from_map(to_map(v)) == {:ok, v}`; for a map form `to_map/2` wrote, `to_map(from_map(m)) == {:ok, m}`. `encode_term/3` (`encode_term(term, type, at \\ nil)`) writes one term's map form, `{:ok, form}` or its faults by path from the term, for a type writing a payload of its own tag whose keys are the tag's, not data (spec/02 §9); `at` is the term's place below the tag, as below.
+- **Writing,** `to_json/3`: the value's map form, encoded, with the stamp `"$version"` set to the type's current version where the type has a version line (it exports `current/0`, found as §9 says) and no stamp where it has none. A value with no form is refused here, at its path, though `Document.check/2` holds it valid: the adapter's limits on what it can write are not the value's.
 - **Reading,** `gates/3` and `read/3` (§5): a JSON document, or its decoded map form, through the gates to the map form at the current version, and from it to the value, judged. `read(to_json(v))` is `{:ok, v}` for a valid value with a form.
 
 A document type implements the behavior `Macaw.Layers.Form`:
 - `tags/0`, its tag table;
-- `keys/0`, the keys it reads as atoms, and `atoms/0`, the atoms a `$atom` may spell, each a closed vocabulary (§2), so no atom is ever made from a document;
+- `keys/0`, the keys it reads as atoms, and `atoms/0`, the atoms a `$atom` may spell, each a closed vocabulary (§2), so no atom is ever made from a document beyond those tables and the reader's `vocabulary:` (below);
 - optionally, `encode_value/1` and `decode_value/2`, for values of its own (a struct, a tuple), written under its own live tags;
 - optionally, `name_map?(path) :: boolean`, whether the map at `path` is a **name map**, whose keys are names, never the type's keys. `path` is from the document's root as the value holds it: atom keys, string names and list indexes. A fragment type answers with `Macaw.Layers.Fragment.name_map?/2`, from its specs ([02 §9](02-fragments.md#fragments-forms)). A type without it has no name maps: every map is a node.
+
+**The reader's vocabulary.** The codec and the reader take `vocabulary: %{keys: [atom], atoms: [atom]}` (`to_map/3`, `from_map/3`, `to_json/3`, `read/3`), the words an adopter registers beyond the type's own, given by code and never by a document. They are merged over the type's tables, `keys` over `keys/0` and `atoms` over `atoms/0`, for that call alone: a key spelled like one of them reads as its atom, and a `$atom` spelling one reads as it; without them the key stays its string and the `$atom` is `{path, {:enum, allowed}}`. No atom is made from the document beyond those tables. A value built in Elixir keeps every word as given, whatever the tables: the vocabulary bounds what reading an encoding may make, never what a value may hold. A `vocabulary:` that is not a map of `:keys` and `:atoms` to lists of atoms raises `ArgumentError`.
+
+```test:forms-vocabulary
+a word outside the type's tables reads as its atom with vocabulary: naming it and is the enum fault (a $atom) or its string (a key) without it, and no atom is made either way; to_map/3 writes an atom key the vocabulary names and refuses it as :unknown_key without; a malformed vocabulary raises
+```
 
 **The kernel's terms:**
 

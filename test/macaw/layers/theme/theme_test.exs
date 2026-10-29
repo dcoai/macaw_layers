@@ -9,23 +9,23 @@ defmodule Macaw.Layers.Theme.ThemeTest do
   doctest Theme
 
   @fixed ~w(axis grid text background surface good warning bad info neutral font_family font_size
-             label_size title_size)a
+             label_size title_size)
 
   describe "slots" do
     @tag verifies: "themes-slots-order"
     test "series first, then the fixed slots, for both themes" do
-      series = Enum.map(1..10, &:"series_#{&1}")
+      series = Enum.map(1..10, &"series_#{&1}")
       assert Theme.slots(Theme.default()) == series ++ @fixed
       assert Theme.slots(Theme.dark()) == series ++ @fixed
-      assert Theme.slots(Theme.new(series: [~RGB"#000"])) == [:series_1 | @fixed]
+      assert Theme.slots(Theme.new(series: [~RGB"#000"])) == ["series_1" | @fixed]
     end
 
     @tag verifies: "themes-slots-order"
     test "{:series, i} cycles over the palette" do
       theme = Theme.new(series: [~RGB"#111", ~RGB"#222", ~RGB"#333"])
-      assert Theme.series_slot(theme, 1) == :series_1
-      assert Theme.series_slot(theme, 3) == :series_3
-      assert Theme.series_slot(theme, 4) == :series_1
+      assert Theme.series_slot(theme, 1) == "series_1"
+      assert Theme.series_slot(theme, 3) == "series_3"
+      assert Theme.series_slot(theme, 4) == "series_1"
       assert Theme.resolve(theme, {:series, 5}, :literal) === ~RGB"#222"
       assert Theme.resolve(theme, {:series, 5}, :css) == "var(--mw-series-2, #222222)"
       assert_raise ArgumentError, fn -> Theme.series_slot(theme, 0) end
@@ -78,8 +78,8 @@ defmodule Macaw.Layers.Theme.ThemeTest do
     test "every built-in theme answers it, and lists it among its slots and color slots" do
       for theme <- @builtin do
         assert Color.literal?(Theme.resolve(theme, :surface, :literal))
-        assert :surface in Theme.slots(theme)
-        assert :surface in Theme.color_slots(theme)
+        assert "surface" in Theme.slots(theme)
+        assert "surface" in Theme.color_slots(theme)
       end
 
       assert Theme.default().surface === ~RGB"#eef2f6"

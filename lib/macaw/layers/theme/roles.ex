@@ -19,7 +19,7 @@ defmodule Macaw.Layers.Theme.Roles do
 
   @doc false
   # Every fault, the entries whose palette contracts already fail (`broken`) left out.
-  @spec violations(Theme.t(), [atom()]) :: [{{:style, atom()}, String.t()}]
+  @spec violations(Theme.t(), [String.t()]) :: [{{:style, String.t()}, String.t()}]
   def violations(%Theme{} = theme, broken) do
     palette = Theme.palette(theme)
     unresolved = unresolved(theme, palette, broken)
@@ -40,7 +40,7 @@ defmodule Macaw.Layers.Theme.Roles do
         do: {{:style, name}, "names #{list(missing)}, not a color of the theme's color table"}
   end
 
-  # A theme's own color is matched by spelling: `Theme.color_name?/2`.
+  # A name of the table, either spelling: `Theme.color_name?/2`.
   defp missing(entry, theme) do
     for part <- @paints,
         color = color(entry, part),

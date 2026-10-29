@@ -48,7 +48,7 @@ defmodule Macaw.Layers.Theme.ShadeTest do
     @tag verifies: "color-typed-transforms"
     test "it pipes like every transform, and refuses a step outside 0..1000" do
       assert color(:red) |> shade(700) |> alpha(0.8) ==
-               {:alpha, {:shade, {:color, :red}, 700}, 0.8}
+               {:alpha, {:shade, {:color, "red"}, 700}, 0.8}
 
       assert_raise ArgumentError, ~r/a step in 0\.\.1000/, fn -> shade(color(:red), 1200) end
       assert_raise ArgumentError, ~r/write color\(:red\)/, fn -> shade(:red, 100) end

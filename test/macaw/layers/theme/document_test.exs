@@ -14,6 +14,15 @@ defmodule Macaw.Layers.Theme.DocumentTest do
 
   doctest Document
 
+  # An adopter's extension registering a word its defaults use (spec/04 §3.4).
+  defmodule Steps do
+    @behaviour Macaw.Layers.Theme.Extension
+    def name, do: "steps"
+    def styles, do: %{}
+    def colors, do: %{}
+    def words, do: %{atoms: [:step]}
+  end
+
   @house Theme.new(
            name: :house,
            series: [~RGB"#2f5d8a", ~RGB"#b5651d", ~RGB"#a23b3b"],
@@ -41,7 +50,7 @@ defmodule Macaw.Layers.Theme.DocumentTest do
     test "the map form is stamped with the current version and holds every field" do
       %{version: version, theme: node} = Document.to_map(@house)
       assert version == Document.current()
-      # Every name a string (spec/01 §1), the library's read back as its atoms.
+      # Every name a string (spec/04 §2.1), as the theme holds it.
       assert node.ramps == strings(@house.ramps)
       assert node.colors == strings(@house.colors)
       assert node.colors["info"] === ~RGB"#2f5d8a"
@@ -56,14 +65,22 @@ defmodule Macaw.Layers.Theme.DocumentTest do
     @tag verifies: "themes-document-forms"
     test "a theme's own root defaults travel in its document" do
       defaults = %{stroke: %{width: 1.5}, line: %{curve: %{type: :step}}}
-      theme = Theme.merge(@house, defaults: defaults)
-      # Every name in the node a string; an atom outside the library's vocabulary inside
-      # an entry is held by its string.
-      held = %{"stroke" => %{width: 1.5}, "line" => %{curve: %{type: "step"}}}
+      theme = Theme.merge(@house, defaults: defaults, extensions: [Steps])
+      # Every name a string; the words of an entry as given, `:step` outside the library's
+      # vocabulary included (spec/04 §2.1).
+      held = %{"stroke" => %{width: 1.5}, "line" => %{curve: %{type: :step}}}
+      assert theme.defaults == held
       assert %{theme: %{defaults: ^held}} = Document.to_map(theme)
-      assert Document.from_map(Document.to_map(theme)) == {:ok, theme}
+      assert Document.from_map(Document.to_map(theme), extensions: [Steps]) == {:ok, theme}
       assert {:ok, json} = Document.to_json(theme)
-      assert Document.from_json(json) == {:ok, theme}
+      assert Document.from_json(json, extensions: [Steps]) == {:ok, theme}
+
+      # The vocabulary is the JSON reader's: without the extension that registers it, the
+      # word is no atom the reader may make, refused at its path.
+      assert {:error, [{[:theme, :defaults, "line", :curve, :type], {:enum, words}}]} =
+               Document.from_json(json)
+
+      refute :step in words
     end
 
     @tag verifies: "themes-document-forms"
@@ -80,7 +97,7 @@ defmodule Macaw.Layers.Theme.DocumentTest do
     end
 
     @tag verifies: "themes-document-forms"
-    test "a node's name maps hold names as strings, the library's read back as its atoms" do
+    test "a node's name maps hold names as strings, read back as the strings they are" do
       assert Document.name_map?([:theme, :styles])
       refute Document.name_map?([:theme, :styles, "primary"])
 
@@ -91,7 +108,7 @@ defmodule Macaw.Layers.Theme.DocumentTest do
 
       {:ok, json} = Document.to_json(@house)
       assert JSON.decode!(json)["theme"]["colors"]["info"] == %{"$rgb" => "#2f5d8a"}
-      assert {:ok, %Theme{colors: %{info: ~RGB"#2f5d8a"}}} = Document.from_json(json)
+      assert {:ok, %Theme{colors: %{"info" => ~RGB"#2f5d8a"}}} = Document.from_json(json)
 
       # A node spelling the library's names as atoms builds the same theme.
       atoms = %{
@@ -105,10 +122,15 @@ defmodule Macaw.Layers.Theme.DocumentTest do
       assert Document.from_map(%{theme: Map.new(atoms, fn {k, v} -> {k, strings(v)} end)}) ==
                {:ok, theme}
 
-      # A name the theme holds as both its atom and its string is written as the atom's
-      # entry, the one it draws with.
-      both = Theme.new(name: :house, colors: %{"info" => ~RGB"#123456"})
-      assert Document.node(both).colors["info"] == both.colors.info
+      # A host's name spelled as the library's is that name, the host's entry winning.
+      host = Theme.new(name: :house, colors: %{"info" => ~RGB"#123456"})
+      assert host.colors["info"] === ~RGB"#123456"
+      assert Document.node(host).colors["info"] === ~RGB"#123456"
+
+      # A value giving one name both ways is refused at the name.
+      assert Document.from_map(%{
+               theme: %{colors: %{:info => ~RGB"#2f5d8a", "info" => ~RGB"#123456"}}
+             }) == {:error, [{[:theme, :colors, "info"], {:duplicate, :name}}]}
     end
 
     @tag verifies: "themes-document-forms"
@@ -190,7 +212,7 @@ defmodule Macaw.Layers.Theme.DocumentTest do
   describe "validity and the contracts" do
     @tag verifies: "themes-document-forms"
     test "a ramp that breaks its contract is the contract fault at its path" do
-      assert {:error, [{[:theme, :ramps, :status], {:contract, message}}]} =
+      assert {:error, [{[:theme, :ramps, "status"], {:contract, message}}]} =
                Document.from_map(%{
                  theme: %{ramps: %{status: [~RGB"#c23238", ~RGB"#bd7407", ~RGB"#4ca34b"]}}
                })
@@ -227,14 +249,14 @@ defmodule Macaw.Layers.Theme.DocumentTest do
     test "a value is judged as terms, never through its form" do
       # Root defaults built in Elixir under an atom name, which the JSON form's name map
       # can't hold (its names are strings): the form refuses the value, and the theme,
-      # which holds a name outside its vocabulary by its string, takes it.
+      # which holds every name by its string and every word as given, takes it.
       node = %{defaults: %{line: %{curve: %{type: :step}}}}
 
       assert Form.to_map(%{theme: node}, Document) ==
                {:error, [{[:theme, :defaults, :line], {:type, :name}}]}
 
       assert {:ok, theme} = Document.from_map(%{theme: node})
-      assert theme.defaults == %{"line" => %{curve: %{type: "step"}}}
+      assert theme.defaults == %{"line" => %{curve: %{type: :step}}}
 
       # The same theme as the JSON form spells it reads back as the same theme.
       assert {:ok, json} = Document.to_json(@house)

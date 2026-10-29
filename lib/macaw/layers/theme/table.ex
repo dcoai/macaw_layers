@@ -1,16 +1,16 @@
 defmodule Macaw.Layers.Theme.Table do
   @moduledoc false
   # A theme's color table (spec/04 §2.2): a name's entry looked up in the theme's own
-  # `colors`, then the default theme's, then the extensions', then the CSS named colors, each
-  # by either spelling of the name; a name's literal color through any chain of names; a
-  # ramp's anchors as literals; and each own entry held to what an entry may be. A literal is
-  # the term `%Macaw.Layers.Color{}`; a string is never a color (spec/04 §1.1).
+  # `colors`, then the default theme's, then the extensions', then the CSS named colors, by
+  # the name's string, as every name of a theme is; a name's literal color through any chain
+  # of names; a ramp's anchors as literals; and each own entry held to what an entry may be.
+  # A literal is the term `%Macaw.Layers.Color{}`; a string is never a color (spec/04 §1.1).
   #
   # Ported from the color-table half of visualize's `Visualize.Theme`.
 
   alias Macaw.Layers.{Color, Theme}
   alias Macaw.Layers.Color.Typed
-  alias Macaw.Layers.Theme.{Contract, Extension}
+  alias Macaw.Layers.Theme.{Contract, Extension, Names}
 
   # The CSS named colors as literals, read once when this compiles.
   @css_colors Map.new(Color.named_colors(), &{&1, Color.parse!(&1)})
@@ -32,34 +32,17 @@ defmodule Macaw.Layers.Theme.Table do
   # the default's, never a series color (§2.3).
   @spec lookup(Theme.t(), atom() | String.t()) :: term()
   def lookup(theme, name) do
-    spelled(own_colors(theme), name) || spelled(Theme.default_colors(), name) ||
-      spelled(extra_colors(theme), name) || css(name)
-  end
+    name = Names.name(name)
 
-  defp css(name) do
-    Map.get(@css_colors, to_string(name))
-  end
-
-  # An entry by either spelling of its name: a document names a theme's colors by string,
-  # Elixir by atom.
-  defp spelled(map, name) do
-    case map do
-      %{^name => value} ->
-        value
-
-      map when is_atom(name) ->
-        Map.get(map, Atom.to_string(name))
-
-      map ->
-        Enum.find_value(map, fn {k, v} -> if is_atom(k) and Atom.to_string(k) == name, do: v end)
-    end
+    Map.get(own_colors(theme), name) || Map.get(Theme.default_colors(), name) ||
+      Map.get(extra_colors(theme), name) || Map.get(@css_colors, name)
   end
 
   @doc false
   # A name's literal. A chain of names that reaches itself raises; `Theme.violations/1`
   # reports it first.
   @spec literal(Theme.t(), atom() | String.t()) :: Color.t()
-  def literal(theme, name), do: literal(theme, name, [])
+  def literal(theme, name), do: literal(theme, Names.name(name), [])
 
   defp literal(theme, name, seen) do
     if name in seen,
@@ -68,7 +51,7 @@ defmodule Macaw.Layers.Theme.Table do
     case lookup(theme, name) do
       %Color{} = literal -> literal
       {:ramp, ramp, t} -> Theme.ramp(theme, ramp, t)
-      {:color, other} -> literal(theme, other, [name | seen])
+      {:color, other} -> literal(theme, Names.name(other), [name | seen])
       %{500 => %Color{} = base} -> base
       value -> Color.resolve(value, theme, :literal)
     end
@@ -86,7 +69,7 @@ defmodule Macaw.Layers.Theme.Table do
 
   @doc false
   # A ramp's anchors as literals, the default theme's where the theme lacks the ramp.
-  @spec anchors(Theme.t(), atom()) :: [Color.t() | term()]
+  @spec anchors(Theme.t(), String.t()) :: [Color.t() | term()]
   def anchors(theme, name) do
     if name not in Contract.ramps(),
       do:
@@ -115,6 +98,8 @@ defmodule Macaw.Layers.Theme.Table do
     do: if(Color.literal?(literal), do: literal)
 
   defp anchor_literal(theme, {:color, name}, seen) do
+    name = Names.name(name)
+
     if name in seen do
       nil
     else
@@ -208,6 +193,8 @@ defmodule Macaw.Layers.Theme.Table do
   # Whether every name in a color value is the table's, without a loop back to `seen`.
   @spec names_resolve(Theme.t(), term(), list()) :: :ok | {:error, String.t()}
   def names_resolve(theme, {:color, other}, seen) do
+    other = Names.name(other)
+
     cond do
       other in seen ->
         {:error, "reaches itself through #{inspect(other)}"}
@@ -221,7 +208,7 @@ defmodule Macaw.Layers.Theme.Table do
   end
 
   def names_resolve(_theme, {:ramp, name, _t}, _seen) do
-    if name in Contract.ramps(),
+    if Names.name(name) in Contract.ramps(),
       do: :ok,
       else: {:error, "names the ramp #{inspect(name)}, which is not a ramp"}
   end
@@ -243,15 +230,14 @@ defmodule Macaw.Layers.Theme.Table do
   # a series slot beyond the palette, raises `ArgumentError`.
   @spec value(Theme.t(), atom() | String.t()) :: {:color | :font | :size, term()}
   def value(theme, slot) do
-    fixed = Enum.find(Theme.fixed_slots(), &(&1 == slot or Atom.to_string(&1) == slot))
-
-    cond do
-      fixed in [:axis, :grid, :text, :background, :surface] -> {:color, Map.fetch!(theme, fixed)}
-      fixed == :font_family -> {:font, theme.font_family}
-      fixed in Theme.size_slots() -> {:size, Map.fetch!(theme, fixed)}
-      true -> table_value(theme, slot)
+    case Theme.field(slot) do
+      :font_family -> {:font, theme.font_family}
+      nil -> table_value(theme, slot)
+      field -> {kind(field), Map.fetch!(theme, field)}
     end
   end
+
+  defp kind(field), do: if(field in Theme.size_slots(), do: :size, else: :color)
 
   defp table_value(%Theme{series: series} = theme, slot) do
     case series_index(slot) do
@@ -271,8 +257,8 @@ defmodule Macaw.Layers.Theme.Table do
 
   @doc false
   @spec series_index(term()) :: pos_integer() | nil
-  def series_index(slot) when is_atom(slot) or is_binary(slot) do
-    with "series_" <> rest <- to_string(slot),
+  def series_index(slot) when is_binary(slot) do
+    with "series_" <> rest <- slot,
          {k, ""} <- Integer.parse(rest) do
       k
     else

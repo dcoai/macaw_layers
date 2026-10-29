@@ -420,7 +420,7 @@ defmodule Macaw.Layers.Color do
   `{:saturate, literal, t}`.
 
       iex> Macaw.Layers.Color.color(:red) |> Macaw.Layers.Color.saturate(0.2)
-      {:saturate, {:color, :red}, 0.2}
+      {:saturate, {:color, "red"}, 0.2}
   """
   @spec saturate(t(), number()) :: t()
   @spec saturate(value(), number()) :: value()
@@ -631,38 +631,40 @@ defmodule Macaw.Layers.Color do
           | {:contrast, value() | :under}
 
   @doc """
-  The color `name` of the theme's color table (spec/04 §1.3, §2.2): the library's names are
-  atoms, and a color a theme declares may be named by its string.
+  The color `name` of the theme's color table (spec/04 §1.3, §2.2). A name is a string, as
+  every name of a theme is (§2.1): one given as an atom is read as its string, so the value
+  is the one a theme holds and its JSON form reads back.
 
       iex> Macaw.Layers.Color.color(:red)
-      {:color, :red}
+      {:color, "red"}
 
   """
   @spec color(atom() | String.t()) :: value()
   def color(name) do
     if Typed.name?(name),
-      do: {:color, name},
+      do: {:color, Kernel.to_string(name)},
       else: raise(ArgumentError, "a color name is an atom or a string, got: #{inspect(name)}")
   end
 
   @doc """
-  The color at `t` in `0..1` along the theme's ramp `name` (spec/04 §2.3).
+  The color at `t` in `0..1` along the theme's ramp `name` (spec/04 §2.3), the name a
+  string as `color/1`'s is.
 
       iex> Macaw.Layers.Color.ramp(:thermal, 0.7)
-      {:ramp, :thermal, 0.7}
+      {:ramp, "thermal", 0.7}
 
   """
-  @spec ramp(atom(), number()) :: value()
+  @spec ramp(atom() | String.t(), number()) :: value()
   def ramp(name, t) do
     cond do
       not Typed.name?(name) ->
-        raise ArgumentError, "a ramp name is an atom, got: #{inspect(name)}"
+        raise ArgumentError, "a ramp name is an atom or a string, got: #{inspect(name)}"
 
       not Typed.unit?(t) ->
         raise ArgumentError, "ramp #{inspect(name)}: #{unit(t)}"
 
       true ->
-        {:ramp, name, t}
+        {:ramp, Kernel.to_string(name), t}
     end
   end
 
@@ -671,7 +673,7 @@ defmodule Macaw.Layers.Color do
   it is `c` at `t` of its alpha; in `blend/1` it is the color's weight (spec/04 §1.3).
 
       iex> Macaw.Layers.Color.color(:blue) |> Macaw.Layers.Color.intensity(0.65)
-      {:intensity, {:color, :blue}, 0.65}
+      {:intensity, {:color, "blue"}, 0.65}
 
   """
   @spec intensity(value(), number()) :: value()
@@ -684,7 +686,7 @@ defmodule Macaw.Layers.Color do
 
       iex> import Macaw.Layers.Color, only: [color: 1, intensity: 2, blend: 1, alpha: 2]
       iex> [color(:blue) |> intensity(0.65), color(:red) |> intensity(0.3)] |> blend() |> alpha(0.65)
-      {:alpha, {:blend, [{:intensity, {:color, :blue}, 0.65}, {:intensity, {:color, :red}, 0.3}]}, 0.65}
+      {:alpha, {:blend, [{:intensity, {:color, "blue"}, 0.65}, {:intensity, {:color, "red"}, 0.3}]}, 0.65}
 
   """
   @spec blend([value(), ...]) :: value()
@@ -703,7 +705,7 @@ defmodule Macaw.Layers.Color do
   The color `c` at opacity `a` in `0..1`, whatever its opacity was (spec/04 §1.3).
 
       iex> Macaw.Layers.Color.color(:red) |> Macaw.Layers.Color.alpha(0.5)
-      {:alpha, {:color, :red}, 0.5}
+      {:alpha, {:color, "red"}, 0.5}
 
   """
   @spec alpha(value(), number()) :: value()
@@ -713,7 +715,7 @@ defmodule Macaw.Layers.Color do
   The color `c` moved toward white by `t` in `0..1`, in OKLCH lightness (spec/04 §1.3).
 
       iex> Macaw.Layers.Color.color(:red) |> Macaw.Layers.Color.lighten(0.3)
-      {:lighten, {:color, :red}, 0.3}
+      {:lighten, {:color, "red"}, 0.3}
 
   """
   @spec lighten(value(), number()) :: value()
@@ -723,7 +725,7 @@ defmodule Macaw.Layers.Color do
   The color `c` moved toward black by `t` in `0..1`, in OKLCH lightness (spec/04 §1.3).
 
       iex> Macaw.Layers.Color.color(:red) |> Macaw.Layers.Color.darken(0.3)
-      {:darken, {:color, :red}, 0.3}
+      {:darken, {:color, "red"}, 0.3}
 
   """
   @spec darken(value(), number()) :: value()
@@ -745,7 +747,7 @@ defmodule Macaw.Layers.Color do
   whichever contrasts more (spec/04 §1.4, §3.2).
 
       iex> Macaw.Layers.Color.color(:bad) |> Macaw.Layers.Color.contrast()
-      {:contrast, {:color, :bad}}
+      {:contrast, {:color, "bad"}}
 
   """
   @spec contrast(value()) :: value()
@@ -759,7 +761,7 @@ defmodule Macaw.Layers.Color do
   eases the chroma toward the ends. A step the theme pins of a name is the pinned color.
 
       iex> Macaw.Layers.Color.color(:red) |> Macaw.Layers.Color.shade(100)
-      {:shade, {:color, :red}, 100}
+      {:shade, {:color, "red"}, 100}
 
   """
   @spec shade(value(), number()) :: value()

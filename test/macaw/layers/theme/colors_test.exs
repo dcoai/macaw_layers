@@ -32,7 +32,7 @@ defmodule Macaw.Layers.Theme.ColorsTest do
     assert Color.resolve(color(:brand), theme, :css) == "var(--mw-brand, #123456)"
     assert "brand" in Theme.color_names(theme)
 
-    assert_raise ArgumentError, ~r/unknown theme slot :brand/, fn ->
+    assert_raise ArgumentError, ~r/unknown theme slot "brand"/, fn ->
       Color.resolve(color(:brand), Theme.default(), :css)
     end
   end
@@ -106,9 +106,11 @@ defmodule Macaw.Layers.Theme.ColorsTest do
 
     @tag verifies: "themes-color-table-lookup"
     test "roles: is read as colors" do
-      assert Theme.new(roles: %{info: ~RGB"#2255aa"}).colors.info === ~RGB"#2255aa"
+      assert Theme.new(roles: %{info: ~RGB"#2255aa"}).colors["info"] === ~RGB"#2255aa"
 
-      assert Theme.new(roles: %{info: ~RGB"#2255aa"}, colors: %{info: ~RGB"#2266bb"}).colors.info ==
+      assert Theme.new(roles: %{info: ~RGB"#2255aa"}, colors: %{info: ~RGB"#2266bb"}).colors[
+               "info"
+             ] ==
                ~RGB"#2266bb"
     end
   end

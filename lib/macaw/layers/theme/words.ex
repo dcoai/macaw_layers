@@ -1,8 +1,10 @@
 defmodule Macaw.Layers.Theme.Words do
   @moduledoc false
-  # The library's vocabulary in a theme (spec/04 §2, §5): the atoms a theme's keys and
-  # values may be. A theme document reads these by spelling and makes no other atom; a name
-  # outside them, a host's or an extension's, is held by its string and matched by spelling.
+  # The library's vocabulary in a theme document (spec/04 §5, spec/01 §5): the keys and the
+  # atom values its JSON form may spell, the fields, the style parts and their keys, the
+  # built-in palette's values and the built-in themes' names. The JSON reader makes no
+  # other atom; a registered extension adds its own words (`Extension.words/0`). Words are
+  # not names: a theme's names are strings, and read as the strings they are.
 
   alias Macaw.Layers.{Theme, Vocabulary}
   alias Macaw.Layers.Theme.Palette
@@ -25,27 +27,13 @@ defmodule Macaw.Layers.Theme.Words do
   @values [:solid, :none, :hatch, :normal, :butt, :square, :miter, :bevel, :inside, :outside] ++
             [:center, :medium, :bold, :italic, :round, :lines, :crosshatch, :dots, :cue]
 
-  @keys Enum.uniq(
-          [:theme, :extends] ++
-            @fields ++
-            @parts ++
-            @part_keys ++
-            Theme.ramp_names() ++
-            Theme.library_color_names() ++
-            Palette.fixed_names() ++ Palette.series(Palette.builtin())
-        )
+  @keys Enum.uniq([:theme, :extends] ++ @fields ++ @parts ++ @part_keys)
   @atoms Enum.uniq(
-           @palette_atoms ++
-             @values ++
-             Theme.builtins() ++
-             Theme.size_slots() ++
-             [:font_family] ++ Palette.fixed_names() ++ Palette.series(Palette.builtin())
+           @palette_atoms ++ @values ++ Theme.builtins() ++ Theme.size_slots() ++ [:font_family]
          )
 
   @key_table Vocabulary.table(@keys)
   @atom_table Vocabulary.table(@atoms)
-  @key_set Map.new(@keys, &{&1, true})
-  @atom_set Map.new(@atoms, &{&1, true})
 
   @doc false
   @spec fields() :: [atom(), ...]
@@ -58,12 +46,4 @@ defmodule Macaw.Layers.Theme.Words do
   @doc false
   @spec atoms() :: Vocabulary.table()
   def atoms, do: @atom_table
-
-  @doc false
-  @spec key?(atom()) :: boolean()
-  def key?(atom), do: Map.has_key?(@key_set, atom)
-
-  @doc false
-  @spec atom?(atom()) :: boolean()
-  def atom?(atom), do: Map.has_key?(@atom_set, atom)
 end

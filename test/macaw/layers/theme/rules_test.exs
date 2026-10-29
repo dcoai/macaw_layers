@@ -78,17 +78,18 @@ defmodule Macaw.Layers.Theme.RulesTest do
     test "a registered extension's names join the palette and the table, after the library's, with their defaults" do
       theme = Theme.new(extensions: [Marks])
 
-      assert Enum.take(Theme.style_names(theme), -3) == [:flash, :lane, :wide]
-      assert Theme.style(theme, :lane) == %{stroke: %{type: :solid, color: {:color, :lane}}}
+      # An extension's names are strings in the theme, as the library's are (spec/04 §2.1).
+      assert Enum.take(Theme.style_names(theme), -3) == ["flash", "lane", "wide"]
+      assert Theme.style(theme, :lane) == %{stroke: %{type: :solid, color: {:color, "lane"}}}
       assert Theme.style(theme, "flash") == %{opacity: 0.6}
       assert Theme.color_name?(theme, :lane) and Theme.color_name?(theme, "lane")
-      assert :lane in Theme.color_names(theme)
+      assert "lane" in Theme.color_names(theme)
       assert Theme.resolve(theme, :lane, :css) == "var(--mw-lane, #8a8f99)"
       assert Color.resolve(color(:lane), theme, :literal) === ~RGB"#8a8f99"
 
       refute Theme.color_name?(Theme.default(), :lane)
 
-      assert_raise ArgumentError, ~r/unknown palette style :lane/, fn ->
+      assert_raise ArgumentError, ~r/unknown palette style "lane"/, fn ->
         Theme.style(Theme.default(), :lane)
       end
     end
@@ -104,7 +105,7 @@ defmodule Macaw.Layers.Theme.RulesTest do
         )
 
       assert Theme.style(theme, :lane) == %{
-               stroke: %{type: :solid, color: {:color, :axis}, width: 2}
+               stroke: %{type: :solid, color: {:color, "axis"}, width: 2}
              }
 
       assert Theme.resolve(theme, :lane, :literal) === ~RGB"#111111"
@@ -123,7 +124,7 @@ defmodule Macaw.Layers.Theme.RulesTest do
     @tag verifies: "themes-extensions-registered"
     test "an unregistered name is a fault naming it: a palette name, and a color an entry paints with" do
       assert_raise ArgumentError,
-                   ~r/style :lane breaks its contract: is not a name of the palette/,
+                   ~r/style "lane" breaks its contract: is not a name of the palette/,
                    fn ->
                      Theme.new(styles: %{lane: %{opacity: 0.5}})
                    end
@@ -136,7 +137,7 @@ defmodule Macaw.Layers.Theme.RulesTest do
     @tag verifies: "themes-extensions-registered"
     test "an extension's color is a color term: text raises naming the extension and the edges" do
       assert_raise ArgumentError,
-                   ~s(extension "texted": color :lane "#8a8f99" is text, and a string is never ) <>
+                   ~s(extension "texted": color "lane" "#8a8f99" is text, and a string is never ) <>
                      ~s(a color: read it with Macaw.Layers.Color.parse!/1, or write ~RGB"#8a8f99"),
                    fn -> Theme.new(extensions: [Texted]) end
     end
@@ -144,19 +145,19 @@ defmodule Macaw.Layers.Theme.RulesTest do
     @tag verifies: "themes-extensions-registered"
     test "an extension's names are held to their group's contracts, its defaults included" do
       assert_raise ArgumentError,
-                   ~r/style :glow breaks its contract: a state style must read without hue/,
+                   ~r/style "glow" breaks its contract: a state style must read without hue/,
                    fn ->
                      Theme.new(extensions: [Hued])
                    end
 
       assert_raise ArgumentError,
-                   ~r/style :heavy breaks its contract: a modifier changes one thing/,
+                   ~r/style "heavy" breaks its contract: a modifier changes one thing/,
                    fn ->
                      Theme.new(extensions: [Lump])
                    end
 
       assert_raise ArgumentError,
-                   ~r/style :lane breaks its contract: the grid must resolve a stroke/,
+                   ~r/style "lane" breaks its contract: the grid must resolve a stroke/,
                    fn ->
                      Theme.new(extensions: [Marks], styles: %{lane: %{stroke: %{type: :none}}})
                    end
@@ -164,18 +165,20 @@ defmodule Macaw.Layers.Theme.RulesTest do
 
     @tag verifies: "themes-extensions-registered"
     test "two extensions adding one name, an extension adding a library name, or another group raise naming both" do
-      assert_raise ArgumentError, ~r/extensions "marks" and "dup" both add the style :lane/, fn ->
-        Theme.new(extensions: [Marks, Dup])
-      end
+      assert_raise ArgumentError,
+                   ~r/extensions "marks" and "dup" both add the style "lane"/,
+                   fn ->
+                     Theme.new(extensions: [Marks, Dup])
+                   end
 
       assert_raise ArgumentError,
-                   ~r/extension "library" adds the style :hover, which the library already names/,
+                   ~r/extension "library" adds the style "hover", which the library already names/,
                    fn ->
                      Theme.new(extensions: [Library])
                    end
 
       assert_raise ArgumentError,
-                   ~r/extension "strayed": style :lost names the group :mark/,
+                   ~r/extension "strayed": style "lost" names the group :mark/,
                    fn ->
                      Theme.new(extensions: [Strayed])
                    end
@@ -284,11 +287,11 @@ defmodule Macaw.Layers.Theme.RulesTest do
       assert Theme.floors(faint) ==
                {:error,
                 [
-                  {:text, {:contrast, floor(~RGB"#999999", ~RGB"#ffffff"), 4.5}},
-                  {:axis, {:contrast, floor(~RGB"#bbbbbb", ~RGB"#ffffff"), 3.0}},
-                  {:series_2, {:contrast, floor(~RGB"#ffdd88", ~RGB"#ffffff"), 3.0}},
-                  {:grid, {:contrast, floor(~RGB"#f8f8f8", ~RGB"#ffffff"), 1.2}},
-                  {:surface, {:equal, :grid}}
+                  {"text", {:contrast, floor(~RGB"#999999", ~RGB"#ffffff"), 4.5}},
+                  {"axis", {:contrast, floor(~RGB"#bbbbbb", ~RGB"#ffffff"), 3.0}},
+                  {"series_2", {:contrast, floor(~RGB"#ffdd88", ~RGB"#ffffff"), 3.0}},
+                  {"grid", {:contrast, floor(~RGB"#f8f8f8", ~RGB"#ffffff"), 1.2}},
+                  {"surface", {:equal, "grid"}}
                 ]}
     end
   end
@@ -296,8 +299,8 @@ defmodule Macaw.Layers.Theme.RulesTest do
   describe "the vocabularies (spec/04 §1.3, §2.3)" do
     @tag verifies: "themes-ramps-contracts"
     test "the four ramps and the five roles are the library's, in order" do
-      assert Theme.ramp_names() == [:status, :thermal, :diverging, :sequential]
-      assert Theme.role_names() == [:good, :warning, :bad, :info, :neutral]
+      assert Theme.ramp_names() == ["status", "thermal", "diverging", "sequential"]
+      assert Theme.role_names() == ["good", "warning", "bad", "info", "neutral"]
     end
 
     @tag verifies: "color-typed-transforms"
@@ -310,7 +313,7 @@ defmodule Macaw.Layers.Theme.RulesTest do
 
   describe "the series cap (spec/04 §2.1, §5)" do
     @tag verifies: "themes-slots-order"
-    test "a theme holds at most 64 series colors, each slot the library's atom" do
+    test "a theme holds at most 64 series colors, each slot the library's name" do
       colors =
         for k <- 1..64,
             do: Color.parse!("#" <> String.pad_leading(Integer.to_string(k * 3, 16), 6, "0"))
@@ -318,12 +321,12 @@ defmodule Macaw.Layers.Theme.RulesTest do
       theme = Theme.build(Theme.default(), series: colors)
       assert length(Theme.slots(theme)) == 64 + 14
 
-      assert Theme.series_slot(theme, 64) == :series_64 and
-               Theme.series_slot(theme, 65) == :series_1
+      assert Theme.series_slot(theme, 64) == "series_64" and
+               Theme.series_slot(theme, 65) == "series_1"
 
       assert Theme.color_slots(theme) ==
                Enum.take(Theme.slots(theme), 64) ++
-                 [:axis, :grid, :text, :background, :surface] ++ Theme.role_names()
+                 ~w(axis grid text background surface) ++ Theme.role_names()
 
       assert_raise ArgumentError, ~r/series: a theme holds at most 64 colors, got 65/, fn ->
         Theme.new(series: colors ++ [~RGB"#000000"])

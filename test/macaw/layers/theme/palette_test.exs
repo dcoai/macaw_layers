@@ -12,16 +12,17 @@ defmodule Macaw.Layers.Theme.PaletteTest do
   alias Macaw.Layers.Theme
 
   @themes [Theme.default(), Theme.dark(), Theme.color_safe(), Theme.print()]
-  @roles [:good, :warning, :bad, :info, :neutral]
-  @states [:hover, :focused, :selected, :active, :disabled, :muted, :emphasis, :breakpoint]
-  @furniture [:axis, :grid, :label, :title, :caption, :value, :annotation]
-  @modifiers [:bold, :italic, :thin, :thick, :dashed, :dotted, :outline]
+  # The palette's names are strings, as every name of a theme is (spec/04 §2.1).
+  @roles ~w(good warning bad info neutral)
+  @states ~w(hover focused selected active disabled muted emphasis breakpoint)
+  @furniture ~w(axis grid label title caption value annotation)
+  @modifiers ~w(bold italic thin thick dashed dotted outline)
 
-  # A palette entry holds its colors typed: a name is `{:color, name}`. Entries are written
-  # in their parts, a paint as `%{type: :solid, color: …}`: unlike visualize, the library
-  # reads no shorthand paint such as `fill: :bad`.
+  # A palette entry holds its colors typed: a name is `{:color, name}`, the name a string.
+  # Entries are written in their parts, a paint as `%{type: :solid, color: …}`: unlike
+  # visualize, the library reads no shorthand paint such as `fill: :bad`.
   defp solid(color) when is_atom(color) or is_binary(color),
-    do: %{type: :solid, color: {:color, color}}
+    do: %{type: :solid, color: {:color, to_string(color)}}
 
   defp solid(color), do: %{type: :solid, color: color}
 
@@ -42,7 +43,7 @@ defmodule Macaw.Layers.Theme.PaletteTest do
     @tag verifies: "themes-palette-entries"
     test "the names are ten style series, then the roles, the states, the furniture and the modifiers" do
       for theme <- @themes do
-        series = Enum.map(1..10, &:"style_#{&1}")
+        series = Enum.map(1..10, &"style_#{&1}")
 
         assert Theme.style_names(theme) ==
                  series ++ @roles ++ @states ++ @furniture ++ @modifiers
@@ -113,7 +114,7 @@ defmodule Macaw.Layers.Theme.PaletteTest do
         entry = Theme.style(theme, role)
         cue = Theme.cue(role)
         # The print theme hatches four role fills, in the role's color.
-        hatched? = theme.name == :print and role != :neutral
+        hatched? = theme.name == :print and role != "neutral"
         fill = if hatched?, do: Map.take(entry.fill, [:type, :color]), else: entry.fill
         expected = if hatched?, do: %{type: :hatch, color: {:color, role}}, else: solid(role)
         assert fill == expected and entry.stroke.color == {:color, role}
@@ -136,20 +137,20 @@ defmodule Macaw.Layers.Theme.PaletteTest do
     test "a theme's own style series is its length, and {:style, i} cycles over it" do
       a = %{fill: solid({:series, 1}), marker: %{shape: :circle}}
       b = %{fill: solid({:series, 2}), marker: %{shape: :square}}
-      theme = %{Theme.default() | styles: %{style_1: a, style_2: b}}
+      theme = %{Theme.default() | styles: %{"style_1" => a, "style_2" => b}}
 
-      assert Enum.take(Theme.style_names(theme), 3) == [:style_1, :style_2, :good]
+      assert Enum.take(Theme.style_names(theme), 3) == ["style_1", "style_2", "good"]
       assert Theme.style(theme, {:style, 3}) == a
       assert Theme.check(theme) == :ok
 
-      assert_raise ArgumentError, ~r/unknown palette style :style_3/, fn ->
+      assert_raise ArgumentError, ~r/unknown palette style "style_3"/, fn ->
         Theme.style(theme, :style_3)
       end
     end
 
     @tag verifies: "themes-palette-entries"
     test "an unknown name, or a style index that is not a positive integer, raises" do
-      assert_raise ArgumentError, ~r/unknown palette style :sparkle of theme :default/, fn ->
+      assert_raise ArgumentError, ~r/unknown palette style "sparkle" of theme :default/, fn ->
         Theme.style(Theme.default(), :sparkle)
       end
 
@@ -162,7 +163,7 @@ defmodule Macaw.Layers.Theme.PaletteTest do
   describe "fallback" do
     @tag verifies: "themes-palette-entries"
     test "a theme lacking a name takes the default theme's entry, whole" do
-      theme = %{Theme.dark() | styles: %{muted: %{opacity: 0.5}}}
+      theme = %{Theme.dark() | styles: %{"muted" => %{opacity: 0.5}}}
 
       assert Theme.style(theme, :muted) == %{opacity: 0.5}
       assert Theme.style(theme, :selected) == Theme.style(Theme.default(), :selected)
@@ -194,15 +195,15 @@ defmodule Macaw.Layers.Theme.PaletteTest do
       vermilion =
         Theme.new(colors: %{vermilion: ~RGB"#d55e00"}, styles: %{bad: %{fill: solid(:vermilion)}})
 
-      # A color the theme declares is named by its string, its table's key by spelling.
-      assert vermilion.styles.bad == %{fill: solid("vermilion")}
+      # A name is its string, the theme's own as the library's.
+      assert vermilion.styles["bad"] == %{fill: solid("vermilion")}
 
       assert Theme.new(
                styles: %{info: %{stroke: %{type: :solid, color: ~RGB"#3b6fa8", width: 2}}}
-             ).styles.info ==
+             ).styles["info"] ==
                %{stroke: %{type: :solid, color: ~RGB"#3b6fa8", width: 2}}
 
-      assert Theme.new(styles: %{neutral: %{stroke: %{width: 2}}}).styles.neutral == %{
+      assert Theme.new(styles: %{neutral: %{stroke: %{width: 2}}}).styles["neutral"] == %{
                stroke: %{width: 2}
              }
     end
@@ -210,7 +211,7 @@ defmodule Macaw.Layers.Theme.PaletteTest do
     @tag verifies: "themes-palette-contracts"
     test "a role style's paint reaches 3:1 against the background, its text 4.5:1 (WCAG)" do
       assert refusal(colors: %{warning: ~RGB"#f5c242"}) ==
-               "theme \"house\": style :warning breaks its contract: fill {:color, :warning} is " <>
+               "theme \"house\": style \"warning\" breaks its contract: fill {:color, \"warning\"} is " <>
                  "1.65:1 against #ffffff; a role style's paint must reach 3:1 (WCAG 1.4.11, " <>
                  "non-text contrast)"
 
@@ -218,25 +219,25 @@ defmodule Macaw.Layers.Theme.PaletteTest do
                colors: %{bad: ~RGB"#e0484e"},
                styles: %{bad: %{fill: solid(:bad), font: %{size: 12}}}
              ) =~
-               "fill {:color, :bad} is 4.03:1 against #ffffff; a role style's text must reach " <>
+               "fill {:color, \"bad\"} is 4.03:1 against #ffffff; a role style's text must reach " <>
                  "4.5:1 (WCAG 1.4.3, text contrast)"
 
       # Measured against the theme's own background: the dark theme's roles read on it.
       assert Theme.check(Theme.dark()) == :ok
 
       assert refusal(background: ~RGB"#1b1e24", colors: %{neutral: ~RGB"#3a3f48"}) =~
-               ~r/style :neutral breaks its contract: fill \{:color, :neutral\} is 1\.\d\d:1 against #1b1e24/
+               ~r/style "neutral" breaks its contract: fill \{:color, "neutral"\} is 1\.\d\d:1 against #1b1e24/
     end
 
     @tag verifies: "themes-palette-contracts"
     test "the role styles' colors are distinct from each other" do
       assert refusal(styles: %{bad: %{fill: solid(:good)}}) ==
-               "theme \"house\": style :bad breaks its contract: the role styles' colors must be " <>
-                 "distinct, but :good paints {:color, :good} and :bad {:color, :good}, 0.0 ΔEOK " <>
+               "theme \"house\": style \"bad\" breaks its contract: the role styles' colors must be " <>
+                 "distinct, but \"good\" paints {:color, \"good\"} and \"bad\" {:color, \"good\"}, 0.0 ΔEOK " <>
                  "apart, under the just-noticeable 0.02"
 
       assert refusal(styles: %{warning: %{fill: solid({:ramp, :status, 1})}}) =~
-               ~r/style :bad breaks its contract: the role styles' colors must be distinct, but :warning paints \{:ramp, :status, 1\} and :bad/
+               ~r/style "bad" breaks its contract: the role styles' colors must be distinct, but "warning" paints \{:ramp, "status", 1\} and "bad"/
     end
 
     @tag verifies: "themes-palette-contracts"
@@ -246,24 +247,24 @@ defmodule Macaw.Layers.Theme.PaletteTest do
       end
 
       assert refusal(styles: %{good: look.(:good), warning: look.(:warning)}) ==
-               "theme \"house\": style :warning breaks its contract: role styles must differ in " <>
+               "theme \"house\": style \"warning\" breaks its contract: role styles must differ in " <>
                  "something besides the colors of fill and stroke (a dash, a marker, a weight), " <>
-                 "but :good and :warning differ only in hue"
+                 "but \"good\" and \"warning\" differ only in hue"
     end
 
     @tag verifies: "themes-palette-contracts"
     test "every color name a palette entry paints with resolves" do
       assert refusal(styles: %{hover: %{stroke: %{color: {:color, :nope}, width: 2}}}) ==
-               ~s(theme "house": style :hover breaks its contract: names "nope", not a color of the ) <>
+               ~s(theme "house": style "hover" breaks its contract: names "nope", not a color of the ) <>
                  "theme's color table"
     end
 
     @tag verifies: "themes-palette-contracts"
     test "a state style changes a non-hue key, never only a color" do
       message = refusal(styles: %{hover: %{stroke: solid(:bad)}})
-      assert message =~ "theme \"house\": style :hover breaks its contract"
+      assert message =~ "theme \"house\": style \"hover\" breaks its contract"
       assert message =~ "a state style must read without hue"
-      assert message =~ "got %{stroke: %{type: :solid, color: {:color, :bad}}}"
+      assert message =~ "got %{stroke: %{type: :solid, color: {:color, \"bad\"}}}"
 
       # A value that leaves the object as it is changes nothing.
       for neutral <- [
@@ -272,7 +273,7 @@ defmodule Macaw.Layers.Theme.PaletteTest do
             %{effect: %{type: :none}},
             %{stroke: %{dash: ""}}
           ] do
-        assert refusal(styles: %{selected: neutral}) =~ "style :selected breaks its contract"
+        assert refusal(styles: %{selected: neutral}) =~ ~s(style "selected" breaks its contract)
       end
 
       for change <- [
@@ -282,12 +283,13 @@ defmodule Macaw.Layers.Theme.PaletteTest do
             %{fill: %{opacity: 0.2}},
             %{stroke: %{dash: "2 2"}}
           ] do
-        assert Theme.new(styles: %{active: change}).styles.active == change
+        assert Theme.new(styles: %{active: change}).styles["active"] == change
       end
 
-      # An effect type outside the library's vocabulary is held by its string.
-      assert Theme.new(styles: %{active: %{effect: %{type: :shadow}}}).styles.active ==
-               %{effect: %{type: "shadow"}}
+      # A word outside the library's vocabulary is kept as given: the vocabulary is the
+      # JSON reader's (spec/04 §2.1, §5), never new/1's.
+      assert Theme.new(styles: %{active: %{effect: %{type: :shadow}}}).styles["active"] ==
+               %{effect: %{type: :shadow}}
     end
 
     @tag verifies: "themes-palette-contracts"
@@ -302,98 +304,103 @@ defmodule Macaw.Layers.Theme.PaletteTest do
       }
 
       assert refusal(styles: %{style_1: a, style_2: %{b | marker: %{shape: :circle}}}) =~
-               "style :style_2 breaks its contract: neighboring style series must differ in " <>
+               ~s(style "style_2" breaks its contract: neighboring style series must differ in ) <>
                  "something besides the colors of fill and stroke (a dash, a marker, a weight), " <>
-                 "but :style_1 and :style_2 differ only in hue"
+                 ~s(but "style_1" and "style_2" differ only in hue)
 
-      # A theme of exactly three entries is a struct, so the wrap is :style_3 beside :style_1.
-      theme = %{Theme.default() | styles: %{style_1: a, style_2: b, style_3: same_as_a}}
+      # A theme of exactly three entries is a struct, so the wrap is "style_3" beside "style_1".
+      theme = %{
+        Theme.default()
+        | styles: %{"style_1" => a, "style_2" => b, "style_3" => same_as_a}
+      }
 
-      assert {:error, {:style, :style_1}, message} = Theme.check(theme)
-      assert message =~ ":style_3 and :style_1 differ only in hue"
+      assert {:error, {:style, "style_1"}, message} = Theme.check(theme)
+      assert message =~ ~s("style_3" and "style_1" differ only in hue)
     end
 
     @tag verifies: "themes-palette-contracts"
     test "a style series of one entry is its own neighbor" do
       entry = %{fill: solid({:series, 1}), marker: %{shape: :circle}}
-      theme = %{Theme.default() | styles: %{style_1: entry}}
-      assert {:error, {:style, :style_1}, message} = Theme.check(theme)
+      theme = %{Theme.default() | styles: %{"style_1" => entry}}
+      assert {:error, {:style, "style_1"}, message} = Theme.check(theme)
       assert message =~ "has itself for a neighbor"
     end
 
     @tag verifies: "themes-palette-contracts"
     test "a text furniture entry resolves a font family and a size" do
       assert refusal(styles: %{caption: %{fill: solid(:text), font: %{size: :font_size}}}) ==
-               "theme \"house\": style :caption breaks its contract: a text style must resolve a " <>
+               "theme \"house\": style \"caption\" breaks its contract: a text style must resolve a " <>
                  "font family, a string or :font_family; got font.family: nil"
 
       assert refusal(styles: %{value: %{font: %{family: "Inter", size: 0}}}) =~
-               ~r/style :value .*must resolve a size, .*got font.size: 0/
+               ~r/style "value" .*must resolve a size, .*got font.size: 0/
 
       assert refusal(styles: %{axis: %{font: %{family: :font_family, size: :grid}}}) =~
-               ~r/style :axis .*got font.size: :grid/
+               ~r/style "axis" .*got font.size: :grid/
 
-      assert Theme.new(styles: %{title: %{font: %{family: "Inter", size: 20}}}).styles.title ==
+      assert Theme.new(styles: %{title: %{font: %{family: "Inter", size: 20}}}).styles["title"] ==
                %{font: %{family: "Inter", size: 20}}
     end
 
     @tag verifies: "themes-palette-contracts"
     test ":grid resolves a stroke" do
       assert refusal(styles: %{grid: %{stroke: %{width: 1}}}) ==
-               "theme \"house\": style :grid breaks its contract: the grid must resolve a stroke, " <>
+               "theme \"house\": style \"grid\" breaks its contract: the grid must resolve a stroke, " <>
                  "a color other than :none; got stroke.color: nil"
 
       assert refusal(styles: %{grid: %{stroke: %{type: :none}}}) =~ "got stroke.color: :none"
 
-      assert Theme.new(styles: %{grid: %{stroke: %{type: :solid, color: :axis, width: 0.5}}}).styles.grid.stroke ==
-               %{type: :solid, color: {:color, :axis}, width: 0.5}
+      assert Theme.new(styles: %{grid: %{stroke: %{type: :solid, color: :axis, width: 0.5}}}).styles[
+               "grid"
+             ].stroke ==
+               %{type: :solid, color: {:color, "axis"}, width: 0.5}
     end
 
     @tag verifies: "themes-palette-contracts"
     test "an entry is flat: no extends" do
       assert refusal(styles: %{emphasis: %{extends: :selected, stroke: %{width: 3}}}) ==
-               "theme \"house\": style :emphasis breaks its contract: a palette entry is flat and " <>
+               "theme \"house\": style \"emphasis\" breaks its contract: a palette entry is flat and " <>
                  "may not use extends, got extends: :selected"
     end
 
     @tag verifies: "themes-palette-contracts"
     test "an entry is a style node" do
       assert refusal(styles: %{muted: 0.25}) =~
-               "style :muted breaks its contract: an entry is a style node, a map of style keys, got 0.25"
+               "style \"muted\" breaks its contract: an entry is a style node, a map of style keys, got 0.25"
     end
 
     @tag verifies: "themes-palette-contracts"
     test ":cue only on a role's dash or symbol" do
       assert refusal(styles: %{hover: %{stroke: %{width: 2, dash: :cue}}}) =~
-               ~r/style :hover .*:hover is not a role; got stroke.dash: :cue/
+               ~r/style "hover" .*"hover" is not a role; got stroke.dash: :cue/
 
       assert refusal(styles: %{bad: %{fill: solid(:bad), stroke: %{type: :solid, color: :cue}}}) =~
-               ~r/style :bad .*only on stroke.dash or marker.shape; got stroke.color: :cue/
+               ~r/style "bad" .*only on stroke.dash or marker.shape; got stroke.color: :cue/
     end
 
     @tag verifies: "themes-palette-contracts"
     test "no unknown names, and no gap in the style series" do
       assert refusal(styles: %{sparkle: %{opacity: 0.5}}) =~
-               ~r/^theme "house": style :sparkle breaks its contract: is not a name of the palette; a theme cannot add one/
+               ~r/^theme "house": style "sparkle" breaks its contract: is not a name of the palette; a theme cannot add one/
 
       assert refusal(styles: %{style_12: %{marker: %{shape: :star}}}) =~
-               "style :style_12 breaks its contract: the style series runs :style_1 to :style_n " <>
-                 "with no gap, and :style_11 is missing below :style_12"
+               ~s(style "style_12" breaks its contract: the style series runs "style_1" to "style_n" ) <>
+                 ~s(with no gap, and "style_11" is missing below "style_12")
     end
 
     @tag verifies: "themes-palette-contracts"
     test "violations/1 names every breaking entry, after the ramps and roles" do
       theme = %{
         Theme.default()
-        | colors: Map.put(Theme.default().colors, :neutral, ~RGB"#ff0000"),
-          styles: %{bad: %{fill: :good}, hover: %{stroke: :bad}, sparkle: %{}}
+        | colors: Map.put(Theme.default().colors, "neutral", ~RGB"#ff0000"),
+          styles: %{"bad" => %{fill: :good}, "hover" => %{stroke: :bad}, "sparkle" => %{}}
       }
 
       # The palette's own, then the role styles as a set once the table reads.
       assert theme |> Theme.violations() |> Enum.map(&elem(&1, 0)) ==
-               [{:color, :neutral}, {:style, :hover}, {:style, :sparkle}]
+               [{:color, "neutral"}, {:style, "hover"}, {:style, "sparkle"}]
 
-      assert {:error, {:color, :neutral}, _} = Theme.check(theme)
+      assert {:error, {:color, "neutral"}, _} = Theme.check(theme)
     end
   end
 end

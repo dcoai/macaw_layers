@@ -124,11 +124,11 @@ defmodule Macaw.Layers.Theme.TypedTest do
   describe "the helpers build data" do
     @tag verifies: "color-typed-transforms"
     test "every helper takes the color first and pipes" do
-      assert color(:blue) |> intensity(0.65) == {:intensity, {:color, :blue}, 0.65}
-      assert ramp(:status, 1) == {:ramp, :status, 1}
+      assert color(:blue) |> intensity(0.65) == {:intensity, {:color, "blue"}, 0.65}
+      assert ramp(:status, 1) == {:ramp, "status", 1}
 
       assert [color(:blue) |> intensity(0.65), color(:red)] |> blend() |> alpha(0.5) ==
-               {:alpha, {:blend, [{:intensity, {:color, :blue}, 0.65}, {:color, :red}]}, 0.5}
+               {:alpha, {:blend, [{:intensity, {:color, "blue"}, 0.65}, {:color, "red"}]}, 0.5}
 
       assert ~RGB"#ff0000" |> lighten(0.1) |> darken(0.2) |> saturate(0.3) |> contrast() ==
                {:contrast, {:saturate, {:darken, {:lighten, ~RGB"#ff0000", 0.1}, 0.2}, 0.3}}

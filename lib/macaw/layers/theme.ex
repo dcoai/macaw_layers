@@ -2,10 +2,11 @@ defmodule Macaw.Layers.Theme do
   @moduledoc """
   The colors, fonts and sizes a page draws with (spec/04 §2, §3).
 
-  A theme is a struct of named **slots**: `:series_1` … `:series_n` for the categorical
-  colors; the furniture `:axis`, `:grid`, `:text`, `:background` and `:surface`; the five
-  **roles** `:good`, `:warning`, `:bad`, `:info` and `:neutral`; and `:font_family`,
-  `:font_size`, `:label_size` and `:title_size`. Its colors are one **color table** (§2.2):
+  A theme is a struct of named **slots**: `"series_1"` … `"series_n"` for the categorical
+  colors; the furniture `"axis"`, `"grid"`, `"text"`, `"background"` and `"surface"`; the
+  five **roles** `"good"`, `"warning"`, `"bad"`, `"info"` and `"neutral"`; and
+  `"font_family"`, `"font_size"`, `"label_size"` and `"title_size"`. Its colors are one
+  **color table** (§2.2):
   the theme's own `colors` over the default theme's, its extensions' and the CSS named
   colors, with the furniture and the series as names too, so `Macaw.Layers.Color.color(:red)`
   is the theme's red. Everything reads a theme through `resolve/3`, in the mode its output
@@ -19,11 +20,18 @@ defmodule Macaw.Layers.Theme do
   Its colors are terms (§2.1): a literal is `%Macaw.Layers.Color{}`, read from text at the
   edge (`Macaw.Layers.Color.parse!/1`, `~RGB"#3b6fa8"`), and a string is never a color.
 
+  **Its names are strings** (§2.1), the library's, its extensions' and a host's alike: the
+  slots, the keys of `ramps`, `colors` and `styles`, and the name in every typed color
+  (`{:color, "good"}`, `{:ramp, "status", 0.5}`). A name given as an atom is read as its
+  string, once, when the theme is built (`new/1`, `merge/2`, a document read), so `:info`
+  and `"info"` are one name; every function that takes a name takes either spelling. Its
+  **words** — a style's keys and atom values, `defaults` — are kept as given.
+
   ## Meaning: ramps, roles and cues
 
   A series color promises *distinct*, never a meaning. A theme also carries four **ramps**
-  whose meaning the library fixes (§2.3): `:status`, `:thermal`, `:diverging` and
-  `:sequential`, each a list of anchors interpolated in CIE Lab, and every role and ramp is
+  whose meaning the library fixes (§2.3): `"status"`, `"thermal"`, `"diverging"` and
+  `"sequential"`, each a list of anchors interpolated in CIE Lab, and every role and ramp is
   held to its contract when a theme is built by `new/1` or `merge/2`.
 
   ## Whole styles: the style palette
@@ -64,18 +72,19 @@ defmodule Macaw.Layers.Theme do
                )
 
   # The ramps of §2.5, chosen in CIE LCh to hold the contracts of §2.3 with room.
+  # Every name a theme holds is a string (§2.1), the library's own included.
   @light_ramps %{
     # The status ramp is defined from the theme's green, amber and red.
-    status: [{:color, :green}, {:color, :amber}, {:color, :red}],
-    thermal: [~RGB"#0e68ad", ~RGB"#e8e8e8", ~RGB"#c02e31"],
-    diverging: [~RGB"#b35806", ~RGB"#ededed", ~RGB"#62448e"],
-    sequential: [~RGB"#e9f2fc", ~RGB"#5e95d3", ~RGB"#004580"]
+    "status" => [{:color, "green"}, {:color, "amber"}, {:color, "red"}],
+    "thermal" => [~RGB"#0e68ad", ~RGB"#e8e8e8", ~RGB"#c02e31"],
+    "diverging" => [~RGB"#b35806", ~RGB"#ededed", ~RGB"#62448e"],
+    "sequential" => [~RGB"#e9f2fc", ~RGB"#5e95d3", ~RGB"#004580"]
   }
   @dark_ramps %{
-    status: [{:color, :green}, {:color, :amber}, {:color, :red}],
-    thermal: [~RGB"#7fb3e6", ~RGB"#3a3f48", ~RGB"#f47c7c"],
-    diverging: [~RGB"#f7a35c", ~RGB"#3a3f48", ~RGB"#c1acee"],
-    sequential: [~RGB"#273b4f", ~RGB"#457cb1", ~RGB"#aad1f9"]
+    "status" => [{:color, "green"}, {:color, "amber"}, {:color, "red"}],
+    "thermal" => [~RGB"#7fb3e6", ~RGB"#3a3f48", ~RGB"#f47c7c"],
+    "diverging" => [~RGB"#f7a35c", ~RGB"#3a3f48", ~RGB"#c1acee"],
+    "sequential" => [~RGB"#273b4f", ~RGB"#457cb1", ~RGB"#aad1f9"]
   }
   # Blue → orange → red: the status order survives the commonest color-vision deficiencies.
   @safe_status [~RGB"#5996d6", ~RGB"#cd6012", ~RGB"#b92931"]
@@ -83,27 +92,31 @@ defmodule Macaw.Layers.Theme do
   # The theme's own part of its color table (§2.2): its status hues, the hues of `:info`
   # and `:neutral`, and the five roles by use, the status three as their positions on the
   # status ramp, so a role and its position never disagree.
-  @by_use %{good: {:ramp, :status, 0}, warning: {:ramp, :status, 0.5}, bad: {:ramp, :status, 1}}
+  @by_use %{
+    "good" => {:ramp, "status", 0},
+    "warning" => {:ramp, "status", 0.5},
+    "bad" => {:ramp, "status", 1}
+  }
   @light_colors Map.merge(@by_use, %{
-                  red: ~RGB"#c23238",
-                  amber: ~RGB"#bd7407",
-                  green: ~RGB"#4ca34b",
-                  blue: ~RGB"#3b6fa8",
-                  gray: ~RGB"#6f7480",
-                  info: ~RGB"#3b6fa8",
-                  neutral: ~RGB"#6f7480"
+                  "red" => ~RGB"#c23238",
+                  "amber" => ~RGB"#bd7407",
+                  "green" => ~RGB"#4ca34b",
+                  "blue" => ~RGB"#3b6fa8",
+                  "gray" => ~RGB"#6f7480",
+                  "info" => ~RGB"#3b6fa8",
+                  "neutral" => ~RGB"#6f7480"
                 })
   @dark_colors Map.merge(@by_use, %{
-                 red: ~RGB"#ff8f8a",
-                 amber: ~RGB"#db8e1c",
-                 green: ~RGB"#4f924c",
-                 blue: ~RGB"#7fb3e6",
-                 gray: ~RGB"#b7bcc6",
-                 info: ~RGB"#7fb3e6",
-                 neutral: ~RGB"#b7bcc6"
+                 "red" => ~RGB"#ff8f8a",
+                 "amber" => ~RGB"#db8e1c",
+                 "green" => ~RGB"#4f924c",
+                 "blue" => ~RGB"#7fb3e6",
+                 "gray" => ~RGB"#b7bcc6",
+                 "info" => ~RGB"#7fb3e6",
+                 "neutral" => ~RGB"#b7bcc6"
                })
   # The CSS named colors, the table's base (§1.1, §2.2).
-  @css_names Macaw.Layers.Color.Names.atoms()
+  @css_names Color.named_colors()
 
   defstruct name: :default,
             series: @light_series,
@@ -124,17 +137,20 @@ defmodule Macaw.Layers.Theme do
             light: nil,
             extensions: []
 
-  @typedoc "One of the four ramps whose meaning the library fixes (§2.3)."
-  @type ramp_name :: :status | :thermal | :diverging | :sequential
+  @typedoc """
+  One of the four ramps whose meaning the library fixes (§2.3): `"status"`, `"thermal"`,
+  `"diverging"` or `"sequential"`, an atom given read as its string.
+  """
+  @type ramp_name :: String.t() | atom()
 
   @typedoc "A slot name, or `{:series, i}` for the i-th series color, cycling."
-  @type slot :: atom() | String.t() | {:series, pos_integer()}
+  @type slot :: String.t() | atom() | {:series, pos_integer()}
 
   @typedoc "A position along a ramp: `t` in `0..1`, clamped."
   @type ramp_position :: {:ramp, ramp_name(), number()}
 
   @typedoc "A name of the style palette, or `{:style, i}` for the i-th style series entry."
-  @type style_name :: atom() | String.t() | {:style, pos_integer()}
+  @type style_name :: String.t() | atom() | {:style, pos_integer()}
 
   @typedoc "How a slot renders: a CSS reference with its fallback, or the stored value."
   @type mode :: :css | :literal
@@ -147,9 +163,9 @@ defmodule Macaw.Layers.Theme do
           text: Color.t(),
           background: Color.t(),
           surface: Color.t(),
-          ramps: %{optional(ramp_name()) => list()},
-          colors: %{optional(atom() | String.t()) => term()},
-          styles: %{optional(atom()) => map() | list()},
+          ramps: %{optional(String.t()) => list()},
+          colors: %{optional(String.t()) => term()},
+          styles: %{optional(String.t()) => map() | list() | String.t()},
           defaults: map(),
           font_family: String.t(),
           font_size: number(),
@@ -160,22 +176,26 @@ defmodule Macaw.Layers.Theme do
           extensions: [module()]
         }
 
-  @color_slots [:axis, :grid, :text, :background, :surface]
+  # The slots are names, strings (§2.1); each fixed slot reads the field it names.
+  @furniture [:axis, :grid, :text, :background, :surface]
+  @color_slots Enum.map(@furniture, &Atom.to_string/1)
   # Where the status roles stand on the status ramp, by default (§2.3).
-  @status_roles [good: 0, warning: 0.5, bad: 1]
-  @role_slots [:good, :warning, :bad, :info, :neutral]
+  @status_roles [{"good", 0}, {"warning", 0.5}, {"bad", 1}]
+  @role_slots ~w(good warning bad info neutral)
+  # The font slots' atoms are also words: a style's font part names them (§2.4).
   @size_slots [:font_size, :label_size, :title_size]
-  @fixed_slots @color_slots ++ @role_slots ++ [:font_family] ++ @size_slots
+  @font_slots [:font_family | @size_slots]
+  @fields Map.new(@furniture ++ @font_slots, &{Atom.to_string(&1), &1})
+  @fixed_slots @color_slots ++ @role_slots ++ Enum.map(@font_slots, &Atom.to_string/1)
   @builtin [:default, :dark, :color_safe, :print]
-  # Every color name the library itself gives (§2.2): a document's color name is read as
-  # one of these atoms, and any other as the string it is, a name the theme declares.
+  # Every color name the library itself gives (§2.2), each a string as a host's is.
   @library_color_names Enum.uniq(
                          @fixed_slots ++
                            Map.keys(@light_colors) ++ Map.keys(@dark_colors) ++ @css_names
                        )
 
   @doc false
-  @spec library_color_names() :: [atom(), ...]
+  @spec library_color_names() :: [String.t(), ...]
   def library_color_names, do: @library_color_names
 
   @doc false
@@ -188,12 +208,18 @@ defmodule Macaw.Layers.Theme do
   def default_ramps, do: @light_ramps
 
   @doc false
-  @spec fixed_slots() :: [atom(), ...]
+  @spec fixed_slots() :: [String.t(), ...]
   def fixed_slots, do: @fixed_slots
 
   @doc false
+  # The font sizes' slots as the words a style's font part names them by.
   @spec size_slots() :: [atom(), ...]
   def size_slots, do: @size_slots
+
+  @doc false
+  # The field a fixed slot other than a role reads, by the slot's name, or `nil`.
+  @spec field(String.t()) :: atom() | nil
+  def field(name), do: Map.get(@fields, name)
 
   # -- the built-in themes (§2.5) ----------------------------------------------------------
 
@@ -224,7 +250,7 @@ defmodule Macaw.Layers.Theme do
   """
   @spec color_safe() :: t()
   def color_safe,
-    do: %__MODULE__{name: :color_safe, ramps: %{@light_ramps | status: @safe_status}}
+    do: %__MODULE__{name: :color_safe, ramps: %{@light_ramps | "status" => @safe_status}}
 
   @doc """
   The print theme: paper. A white background and surface, near-black text and axes, a grid
@@ -240,7 +266,7 @@ defmodule Macaw.Layers.Theme do
       text: ~RGB"#111111",
       background: ~RGB"#ffffff",
       surface: ~RGB"#ffffff",
-      ramps: %{@light_ramps | status: @safe_status},
+      ramps: %{@light_ramps | "status" => @safe_status},
       styles: Palette.print()
     }
   end
@@ -274,33 +300,41 @@ defmodule Macaw.Layers.Theme do
 
   # -- ramps, roles and cues (§2.3) ------------------------------------------------------
 
-  @doc "The four ramps whose meaning the library fixes."
-  @spec ramp_names() :: [ramp_name(), ...]
+  @doc """
+  The four ramps whose meaning the library fixes, by name.
+
+      iex> Macaw.Layers.Theme.ramp_names()
+      ["status", "thermal", "diverging", "sequential"]
+  """
+  @spec ramp_names() :: [String.t(), ...]
   def ramp_names, do: Contract.ramps()
 
-  @doc "The five roles: the status ramp's three fixed points, then `:info` and `:neutral`."
-  @spec role_names() :: [atom(), ...]
+  @doc """
+  The five roles: the status ramp's three fixed points, then `"info"` and `"neutral"`.
+  """
+  @spec role_names() :: [String.t(), ...]
   def role_names, do: @role_slots
 
   # Each role's cue besides its hue: the library's, not a theme's, as the hue order is.
   @cues %{
-    good: %{glyph: :circle, dash: nil},
-    warning: %{glyph: :triangle, dash: "6 3"},
-    bad: %{glyph: :cross, dash: "2 3"},
-    info: %{glyph: :square, dash: "8 3 2 3"},
-    neutral: %{glyph: :diamond, dash: "1 4"}
+    "good" => %{glyph: :circle, dash: nil},
+    "warning" => %{glyph: :triangle, dash: "6 3"},
+    "bad" => %{glyph: :cross, dash: "2 3"},
+    "info" => %{glyph: :square, dash: "8 3 2 3"},
+    "neutral" => %{glyph: :diamond, dash: "1 4"}
   }
 
   @doc """
   A role's cue besides its hue: its glyph and its dash (`nil` for solid), so a status reads
-  without its hue. Raises `ArgumentError` for anything but a role.
+  without its hue. The role by its name, an atom read as its string. Raises
+  `ArgumentError` for anything but a role.
 
       iex> Macaw.Layers.Theme.cue(:warning)
       %{glyph: :triangle, dash: "6 3"}
   """
-  @spec cue(atom()) :: %{glyph: atom(), dash: String.t() | nil}
+  @spec cue(String.t() | atom()) :: %{glyph: atom(), dash: String.t() | nil}
   def cue(role) do
-    case Map.fetch(@cues, role) do
+    case Map.fetch(@cues, Names.name(role)) do
       {:ok, cue} ->
         cue
 
@@ -321,6 +355,7 @@ defmodule Macaw.Layers.Theme do
   """
   @spec ramp(t(), ramp_name(), number()) :: Color.t()
   def ramp(%__MODULE__{} = theme, name, t) when is_number(t) do
+    name = Names.name(name)
     anchors = Table.anchors(theme, name)
     n = length(anchors) - 1
     position = (t |> max(0) |> min(1)) * n
@@ -363,7 +398,7 @@ defmodule Macaw.Layers.Theme do
   a solid dash leaving the key out. Any other name raises `ArgumentError`.
 
       iex> Macaw.Layers.Theme.style(Macaw.Layers.Theme.default(), :warning)
-      %{fill: %{type: :solid, color: {:color, :warning}}, stroke: %{type: :solid, color: {:color, :warning}, dash: "6 3"}, marker: %{shape: :triangle}}
+      %{fill: %{type: :solid, color: {:color, "warning"}}, stroke: %{type: :solid, color: {:color, "warning"}, dash: "6 3"}, marker: %{shape: :triangle}}
       iex> Macaw.Layers.Theme.style(Macaw.Layers.Theme.default(), :muted)
       %{opacity: 0.25}
   """
@@ -373,14 +408,10 @@ defmodule Macaw.Layers.Theme do
     style(theme, Enum.at(series, rem(i - 1, length(series))))
   end
 
-  def style(%__MODULE__{} = theme, name) when is_binary(name) do
-    case Enum.find(style_names(theme), &(Atom.to_string(&1) == name)) do
-      nil -> style(theme, {:unknown, name})
-      found -> style(theme, found)
-    end
-  end
+  def style(%__MODULE__{} = theme, name) when is_atom(name) and name not in [nil, true, false],
+    do: style(theme, Names.name(name))
 
-  def style(%__MODULE__{} = theme, name) when is_atom(name) do
+  def style(%__MODULE__{} = theme, name) when is_binary(name) do
     if name not in style_names(theme) do
       raise ArgumentError,
             "unknown palette style #{inspect(name)} of theme #{inspect(theme.name)}; see " <>
@@ -400,13 +431,13 @@ defmodule Macaw.Layers.Theme do
   The theme's palette names: its style series, the default's ten when it has none of its
   own, then the roles, the states, the furniture and the modifiers, then its extensions'.
   """
-  @spec style_names(t()) :: [atom(), ...]
+  @spec style_names(t()) :: [String.t(), ...]
   def style_names(%__MODULE__{} = theme),
     do: theme |> own_styles() |> Palette.series() |> Palette.names(extra_styles(theme))
 
   @doc false
   # Every palette entry of the theme by name, each as `style/2` answers it.
-  @spec palette(t()) :: %{atom() => map()}
+  @spec palette(t()) :: %{String.t() => map()}
   def palette(%__MODULE__{} = theme),
     do: theme |> style_names() |> Map.new(&{&1, cued(&1, composed(theme, &1))})
 
@@ -476,7 +507,15 @@ defmodule Macaw.Layers.Theme do
       iex> Macaw.Layers.Theme.style(theme, :muted)
       %{opacity: 0.4}
       iex> Macaw.Layers.Theme.new(name: :house, colors: %{warning: Macaw.Layers.Color.parse!("#f5c242")})
-      ** (ArgumentError) theme "house": style :warning breaks its contract: fill {:color, :warning} is 1.65:1 against #ffffff; a role style's paint must reach 3:1 (WCAG 1.4.11, non-text contrast)
+      ** (ArgumentError) theme "house": style "warning" breaks its contract: fill {:color, "warning"} is 1.65:1 against #ffffff; a role style's paint must reach 3:1 (WCAG 1.4.11, non-text contrast)
+
+  Names are strings (§2.1): a name given as an atom is its string, so a host's `"info"`
+  and the library's `:info` are one name, the one given winning; a name given both ways in
+  one map raises.
+
+      iex> Macaw.Layers.Theme.new(colors: %{"info" => Macaw.Layers.Color.parse!("#2f5d8a")})
+      ...> |> Macaw.Layers.Theme.resolve(:info, :css)
+      "var(--mw-info, #2f5d8a)"
   """
   @spec merge(t(), keyword() | map()) :: t()
   def merge(%__MODULE__{} = theme, fields) do
@@ -509,14 +548,15 @@ defmodule Macaw.Layers.Theme do
   # else checked.
   @spec build(t(), keyword() | map()) :: t()
   def build(%__MODULE__{} = theme, fields) do
-    fields = Map.new(fields)
+    # Every name a string, once, here (§2.1); words as given.
+    fields = fields |> Map.new() |> Names.normalize!(theme.name)
     {ramps, fields} = Map.pop(fields, :ramps, %{})
     # The role colors of before visualize#663 are names of the color table.
     {roles, fields} = Map.pop(fields, :roles, %{})
     {colors, fields} = Map.pop(fields, :colors, %{})
     {styles, fields} = Map.pop(fields, :styles, %{})
     {defaults, fields} = Map.pop(fields, :defaults, %{})
-    theme = struct!(theme, Names.fields(fields))
+    theme = struct!(theme, fields)
 
     Extension.check!(
       theme.extensions,
@@ -527,16 +567,9 @@ defmodule Macaw.Layers.Theme do
     %{
       theme
       | ramps: merged(theme.ramps, ramps, :ramps),
-        colors:
-          theme.colors
-          |> merged(Names.colors(roles), :roles)
-          |> merged(Names.colors(colors), :colors),
-        styles:
-          theme.styles
-          |> merged(styles, :styles)
-          |> Map.new(fn {k, v} -> {k, typed(v)} end)
-          |> Names.styles(Palette.fixed_names() ++ Map.keys(extra_styles(theme))),
-        defaults: theme.defaults |> merged(defaults, :defaults) |> Names.defaults()
+        colors: theme.colors |> merged(roles, :roles) |> merged(colors, :colors),
+        styles: merged(theme.styles, styles, :styles),
+        defaults: merged(theme.defaults, defaults, :defaults)
     }
   end
 
@@ -545,7 +578,7 @@ defmodule Macaw.Layers.Theme do
   defp literals!(theme) do
     fields =
       Enum.with_index(List.wrap(theme.series), &{"series[#{&2}]", &1}) ++
-        Enum.map(@color_slots, &{Atom.to_string(&1), Map.fetch!(theme, &1)})
+        Enum.map(@furniture, &{Atom.to_string(&1), Map.fetch!(theme, &1)})
 
     for {field, value} <- fields, not Color.literal?(value) do
       raise ArgumentError, "theme #{inspect(theme.name)}: #{field} #{not_color(value)}"
@@ -554,28 +587,11 @@ defmodule Macaw.Layers.Theme do
     :ok
   end
 
-  defp merged(own, given, _key) when is_map(given), do: Map.merge(own || %{}, given)
-  defp merged(own, given, key) when is_list(given), do: merged(own, Map.new(given), key)
+  defp merged(own, given, _key) when is_map(given) and not is_struct(given),
+    do: Map.merge(own || %{}, given)
 
   defp merged(_own, given, key),
     do: raise(ArgumentError, "#{key}: a map of name to value, got #{inspect(given)}")
-
-  # A color written as a bare atom in a paint is the typed color it names (§2.4); `:none`
-  # is no color.
-  defp typed(entry) when is_map(entry) and not is_struct(entry) do
-    Map.new(entry, fn
-      {part, %{color: color} = paint}
-      when part in [:fill, :stroke] and is_atom(color) and
-             color not in [nil, true, false, :none, :cue] ->
-        {part, %{paint | color: {:color, color}}}
-
-      other ->
-        other
-    end)
-  end
-
-  defp typed(entries) when is_list(entries), do: Enum.map(entries, &typed/1)
-  defp typed(entry), do: entry
 
   @doc """
   `:ok`, or `{:error, subject, message}` for the first ramp, color or palette entry of the
@@ -585,12 +601,12 @@ defmodule Macaw.Layers.Theme do
       iex> Macaw.Layers.Theme.check(Macaw.Layers.Theme.dark())
       :ok
       iex> status = Enum.map(~w(#c23238 #bd7407 #4ca34b), &Macaw.Layers.Color.parse!/1)
-      iex> theme = %{Macaw.Layers.Theme.default() | ramps: %{status: status}}
-      iex> {:error, {:ramp, :status}, message} = Macaw.Layers.Theme.check(theme)
+      iex> theme = %{Macaw.Layers.Theme.default() | ramps: %{"status" => status}}
+      iex> {:error, {:ramp, "status"}, message} = Macaw.Layers.Theme.check(theme)
       iex> message =~ "good (0) must be green or blue"
       true
   """
-  @spec check(t()) :: :ok | {:error, {:ramp | :color | :style, atom() | String.t()}, String.t()}
+  @spec check(t()) :: :ok | {:error, {:ramp | :color | :style, String.t()}, String.t()}
   def check(%__MODULE__{ramps: ramps} = theme) when is_map(ramps) do
     case violations(theme) do
       [] -> :ok
@@ -602,7 +618,7 @@ defmodule Macaw.Layers.Theme do
   Every ramp, color and palette entry of the theme that breaks its contract, as
   `{subject, message}` in `check/1`'s order, each contract run alone.
   """
-  @spec violations(t()) :: [{{:ramp | :color | :style, atom() | String.t()}, String.t()}]
+  @spec violations(t()) :: [{{:ramp | :color | :style, String.t()}, String.t()}]
   def violations(%__MODULE__{ramps: ramps} = theme) when is_map(ramps) do
     colors = Table.own_colors(theme)
 
@@ -623,7 +639,7 @@ defmodule Macaw.Layers.Theme do
           do: {subject, message}
 
     entry_faults =
-      for name <- colors |> Map.keys() |> Enum.sort_by(&to_string/1),
+      for name <- colors |> Map.keys() |> Enum.sort(),
           {:error, message} <- [Table.entry(theme, name)],
           do: {{:color, name}, message}
 
@@ -653,42 +669,52 @@ defmodule Macaw.Layers.Theme do
 
   # -- slots and the color table (§2.1, §2.2) ---------------------------------------------
 
-  @doc "The theme's slot names: `:series_1` to `:series_n`, then the fixed slots."
-  @spec slots(t()) :: [atom()]
+  @doc """
+  The theme's slot names: `"series_1"` to `"series_n"`, then the fixed slots.
+
+      iex> Macaw.Layers.Theme.new(series: [Macaw.Layers.Color.parse!("#3b6fa8"), Macaw.Layers.Color.parse!("#d9730d")])
+      ...> |> Macaw.Layers.Theme.slots()
+      ...> |> Enum.take(4)
+      ["series_1", "series_2", "axis", "grid"]
+  """
+  @spec slots(t()) :: [String.t()]
   def slots(%__MODULE__{series: series}),
-    do: Enum.map(1..length(series)//1, &series_atom/1) ++ @fixed_slots
+    do: Enum.map(1..length(series)//1, &series_name/1) ++ @fixed_slots
 
   @doc "The color slots: the series, then the furniture, then the five roles."
-  @spec color_slots(t()) :: [atom(), ...]
+  @spec color_slots(t()) :: [String.t(), ...]
   def color_slots(%__MODULE__{series: series}),
-    do: Enum.map(1..length(series)//1, &series_atom/1) ++ @color_slots ++ @role_slots
+    do: Enum.map(1..length(series)//1, &series_name/1) ++ @color_slots ++ @role_slots
 
   @doc """
   Every name of the theme's color table, sorted: its color slots, its own and the default
   theme's colors, its extensions' and the CSS named colors.
 
       iex> names = Macaw.Layers.Theme.color_names(Macaw.Layers.Theme.default())
-      iex> Enum.all?([:red, :amber, :bad, :axis, :series_3, :steelblue], &(&1 in names))
+      iex> Enum.all?(~w(red amber bad axis series_3 steelblue), &(&1 in names))
       true
   """
-  @spec color_names(t()) :: [atom() | String.t(), ...]
+  @spec color_names(t()) :: [String.t(), ...]
   def color_names(%__MODULE__{} = theme) do
     (color_slots(theme) ++
        Map.keys(Table.own_colors(theme)) ++
        Map.keys(@light_colors) ++ Map.keys(Table.extra_colors(theme)) ++ @css_names)
     |> Enum.uniq()
-    |> Enum.sort_by(&{is_binary(&1), &1})
+    |> Enum.sort()
   end
 
   @doc """
-  Whether `name` is of the theme's color table, answered without building the list.
+  Whether `name` is of the theme's color table, answered without building the list. A
+  name is its string, an atom read as its string.
 
       iex> theme = Macaw.Layers.Theme.default()
-      iex> Enum.map([:red, :bad, :axis, :series_3, :steelblue, :series_99, :thick], &Macaw.Layers.Theme.color_name?(theme, &1))
+      iex> Enum.map([:red, "bad", :axis, "series_3", :steelblue, :series_99, :thick], &Macaw.Layers.Theme.color_name?(theme, &1))
       [true, true, true, true, true, false, false]
   """
   @spec color_name?(t(), term()) :: boolean()
   def color_name?(%__MODULE__{} = theme, name) when is_atom(name) or is_binary(name) do
+    name = Names.name(name)
+
     name in @color_slots or name in @role_slots or Table.lookup(theme, name) != nil or
       series_slot?(theme, name)
   end
@@ -697,28 +723,33 @@ defmodule Macaw.Layers.Theme do
 
   defp series_slot?(%__MODULE__{series: series}, name) do
     case Table.series_index(name) do
-      k when is_integer(k) -> k >= 1 and k <= length(series) and to_string(name) == "series_#{k}"
+      k when is_integer(k) -> k >= 1 and k <= length(series) and name == "series_#{k}"
       nil -> false
     end
   end
 
-  @doc "The `:series_k` slot the positive index `i` cycles to over the theme's series."
-  @spec series_slot(t(), pos_integer()) :: atom()
+  @doc """
+  The `"series_k"` slot the positive index `i` cycles to over the theme's series.
+
+      iex> Macaw.Layers.Theme.series_slot(Macaw.Layers.Theme.default(), 11)
+      "series_1"
+  """
+  @spec series_slot(t(), pos_integer()) :: String.t()
   def series_slot(%__MODULE__{series: series}, i) when is_integer(i) and i >= 1,
-    do: series_atom(rem(i - 1, length(series)) + 1)
+    do: series_name(rem(i - 1, length(series)) + 1)
 
   def series_slot(%__MODULE__{}, i),
     do: raise(ArgumentError, "a series index is a positive integer, got: #{inspect(i)}")
 
   @doc false
-  # The series slot `:series_k`, one atom per index a theme holds.
-  @spec series_atom(pos_integer()) :: atom()
-  def series_atom(k) when is_integer(k) and k >= 1, do: Slots.series(k)
+  # The series slot `"series_k"`.
+  @spec series_name(pos_integer()) :: String.t()
+  def series_name(k) when is_integer(k) and k >= 1, do: Slots.series(k)
 
   @doc false
   # The literal a theme pins at step `n` of a name's scale, `nil` when it pins none there.
   @spec step(t(), atom() | String.t(), number()) :: Color.t() | nil
-  def step(%__MODULE__{} = theme, name, n), do: Table.step(theme, name, n)
+  def step(%__MODULE__{} = theme, name, n), do: Table.step(theme, Names.name(name), n)
 
   # -- resolution (§3.1) ------------------------------------------------------------------
 
@@ -726,20 +757,24 @@ defmodule Macaw.Layers.Theme do
   The slot's value: the stored literal, or a CSS custom-property reference that falls back
   to its CSS text. A color is a literal `%Macaw.Layers.Color{}` under `:literal`; sizes are
   numbers under `:literal` and gain `px` under `:css`. A ramp position is its literal in
-  both modes, as CSS text under `:css`, except where a status role stands, `{:ramp, :status,
-  0 | 0.5 | 1}`, which resolves as the role while the table holds the role there. An unknown
-  name, or a series slot beyond the palette, raises `ArgumentError`.
+  both modes, as CSS text under `:css`, except where a status role stands, `{:ramp,
+  "status", 0 | 0.5 | 1}`, which resolves as the role while the table holds the role there.
+  A name, of a slot, a color or a ramp, is its string, an atom read as its string. An
+  unknown name, or a series slot beyond the palette, raises `ArgumentError`.
   """
   @spec resolve(t(), slot() | ramp_position(), mode()) :: Color.t() | String.t() | number()
   def resolve(%__MODULE__{} = theme, {:series, i}, mode),
     do: resolve(theme, series_slot(theme, i), mode)
 
-  def resolve(%__MODULE__{} = theme, {:ramp, :status, t}, mode) when is_number(t) do
+  def resolve(%__MODULE__{} = theme, {:ramp, name, t}, mode) when is_atom(name),
+    do: resolve(theme, {:ramp, Names.name(name), t}, mode)
+
+  def resolve(%__MODULE__{} = theme, {:ramp, "status", t}, mode) when is_number(t) do
     case Enum.find(@status_roles, fn {role, at} ->
-           at == t and Table.lookup(theme, role) == {:ramp, :status, at}
+           at == t and Table.lookup(theme, role) == {:ramp, "status", at}
          end) do
       {role, _at} -> resolve(theme, role, mode)
-      nil -> theme |> ramp(:status, t) |> written(mode)
+      nil -> theme |> ramp("status", t) |> written(mode)
     end
   end
 
@@ -747,12 +782,12 @@ defmodule Macaw.Layers.Theme do
     do: theme |> ramp(name, t) |> written(mode)
 
   def resolve(%__MODULE__{} = theme, slot, :literal) when is_atom(slot) or is_binary(slot) do
-    {_kind, value} = Table.value(theme, slot)
+    {_kind, value} = Table.value(theme, Names.name(slot))
     value
   end
 
   def resolve(%__MODULE__{} = theme, slot, :css) when is_atom(slot) or is_binary(slot) do
-    {kind, value} = Table.value(theme, slot)
+    {kind, value} = Table.value(theme, Names.name(slot))
     "var(#{css_name(slot)}, #{Table.css_value(kind, value)})"
   end
 
@@ -801,9 +836,9 @@ defmodule Macaw.Layers.Theme do
   The contrast floors a theme offered to people holds against its own background: `text`
   at least 4.5:1, `axis` and every series color at least 3:1, `grid` at least 1.2:1, and a
   `surface` different from the `grid`. `:ok`, or `{:error, faults}`, each `{slot,
-  {:contrast, ratio, floor}}` or `{:surface, {:equal, :grid}}`.
+  {:contrast, ratio, floor}}`, the slot by its name, or `{"surface", {:equal, "grid"}}`.
   """
-  @spec floors(t()) :: :ok | {:error, [{atom(), term()}, ...]}
+  @spec floors(t()) :: :ok | {:error, [{String.t(), term()}, ...]}
   defdelegate floors(theme), to: Contrast
 
   @doc """

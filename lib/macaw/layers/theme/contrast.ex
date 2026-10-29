@@ -66,24 +66,24 @@ defmodule Macaw.Layers.Theme.Contrast do
   defp literal(value), do: if(Color.literal?(value), do: value)
 
   @doc false
-  @spec floors(Theme.t()) :: :ok | {:error, [{atom(), term()}, ...]}
+  @spec floors(Theme.t()) :: :ok | {:error, [{String.t(), term()}, ...]}
   def floors(%Theme{} = theme) do
     background = literal(theme.background) || @white
 
     series =
       theme.series
       |> Enum.with_index(1)
-      |> Enum.map(fn {literal, k} -> {Theme.series_atom(k), literal, @non_text} end)
+      |> Enum.map(fn {literal, k} -> {Theme.series_name(k), literal, @non_text} end)
 
     measured =
       for {slot, literal, floor} <-
-            [{:text, theme.text, @text}, {:axis, theme.axis, @non_text}] ++
-              series ++ [{:grid, theme.grid, @grid}],
+            [{"text", theme.text, @text}, {"axis", theme.axis, @non_text}] ++
+              series ++ [{"grid", theme.grid, @grid}],
           ratio = ratio(literal, background),
           ratio < floor,
           do: {slot, {:contrast, ratio, floor}}
 
-    surface = if same?(theme.surface, theme.grid), do: [{:surface, {:equal, :grid}}], else: []
+    surface = if same?(theme.surface, theme.grid), do: [{"surface", {:equal, "grid"}}], else: []
 
     case measured ++ surface do
       [] -> :ok

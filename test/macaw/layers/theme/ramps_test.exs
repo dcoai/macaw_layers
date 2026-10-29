@@ -36,7 +36,7 @@ defmodule Macaw.Layers.Theme.RampsTest do
     test "every one carries the four ramps and the two free roles" do
       for theme <- @themes do
         assert theme.ramps |> Map.keys() |> Enum.sort() ==
-                 Enum.sort([:status, :thermal, :diverging, :sequential])
+                 Enum.sort(~w(status thermal diverging sequential))
 
         # The roles are names by use in the color table (spec/04 §2.2).
         for role <- Theme.role_names(), do: assert(Map.has_key?(theme.colors, role))
@@ -93,7 +93,7 @@ defmodule Macaw.Layers.Theme.RampsTest do
           Theme.new(name: :house, ramps: %{status: [~RGB"#c23238", ~RGB"#bd7407", ~RGB"#4ca34b"]})
         end
 
-      assert error.message =~ "theme \"house\": ramp :status breaks its contract"
+      assert error.message =~ "theme \"house\": ramp \"status\" breaks its contract"
       assert error.message =~ "good (0) must be green or blue"
     end
 
@@ -104,17 +104,17 @@ defmodule Macaw.Layers.Theme.RampsTest do
           Theme.new(ramps: %{status: [~RGB"#4ca34b", ~RGB"#e0a030", ~RGB"#c23238"]})
         end
 
-      assert error.message =~ "ramp :status"
+      assert error.message =~ ~s(ramp "status")
       assert error.message =~ "lightness must change one way along the ramp, by at least 3 L*"
       assert error.message =~ ~s(anchor 2 "#e0a030")
     end
 
     @tag verifies: "themes-ramps-contracts"
     test "sequential lightness that steps by less than the tolerance" do
-      assert {:error, {:ramp, :sequential}, message} =
+      assert {:error, {:ramp, "sequential"}, message} =
                Theme.check(%{
                  Theme.default()
-                 | ramps: %{sequential: [~RGB"#5e95d3", ~RGB"#5a92d0", ~RGB"#004580"]}
+                 | ramps: %{"sequential" => [~RGB"#5e95d3", ~RGB"#5a92d0", ~RGB"#004580"]}
                })
 
       assert message =~ "only"
@@ -126,26 +126,26 @@ defmodule Macaw.Layers.Theme.RampsTest do
       # lightness falls, but the hue climbs from green to blue before it falls.
       ramp = [~RGB"#68be64", ~RGB"#65a0e2", ~RGB"#bd7407", ~RGB"#ca4c23", ~RGB"#c23238"]
 
-      assert {:error, {:ramp, :status}, message} =
-               Theme.check(%{Theme.default() | ramps: %{status: ramp}})
+      assert {:error, {:ramp, "status"}, message} =
+               Theme.check(%{Theme.default() | ramps: %{"status" => ramp}})
 
       assert message =~ "hue must fall from good to bad"
     end
 
     @tag verifies: "themes-ramps-contracts"
     test "a thermal ramp with no neutral midpoint, and a diverging one of one hue" do
-      assert {:error, {:ramp, :thermal}, message} =
+      assert {:error, {:ramp, "thermal"}, message} =
                Theme.check(%{
                  Theme.default()
-                 | ramps: %{thermal: [~RGB"#0e68ad", ~RGB"#5e95d3", ~RGB"#c02e31"]}
+                 | ramps: %{"thermal" => [~RGB"#0e68ad", ~RGB"#5e95d3", ~RGB"#c02e31"]}
                })
 
       assert message =~ "midpoint (0.5) must be neutral"
 
-      assert {:error, {:ramp, :diverging}, message} =
+      assert {:error, {:ramp, "diverging"}, message} =
                Theme.check(%{
                  Theme.default()
-                 | ramps: %{diverging: [~RGB"#b35806", ~RGB"#ededed", ~RGB"#c02e31"]}
+                 | ramps: %{"diverging" => [~RGB"#b35806", ~RGB"#ededed", ~RGB"#c02e31"]}
                })
 
       assert message =~ "at least 60° apart"
@@ -155,34 +155,34 @@ defmodule Macaw.Layers.Theme.RampsTest do
     test "a sequential ramp of more than one hue family" do
       viridis = @schemes.viridis
 
-      assert {:error, {:ramp, :sequential}, message} =
-               Theme.check(%{Theme.default() | ramps: %{sequential: viridis}})
+      assert {:error, {:ramp, "sequential"}, message} =
+               Theme.check(%{Theme.default() | ramps: %{"sequential" => viridis}})
 
       assert message =~ "one hue family"
 
       for scheme <- [:blues, :greens, :grays, :oranges, :purples, :reds] do
         sequential = Map.fetch!(@schemes, scheme)
-        assert Theme.check(%{Theme.default() | ramps: %{sequential: sequential}}) == :ok
+        assert Theme.check(%{Theme.default() | ramps: %{"sequential" => sequential}}) == :ok
       end
     end
 
     @tag verifies: "themes-ramps-contracts"
     test "roles: info is a blue, neutral is neutral" do
-      assert {:error, {:color, :neutral}, _} =
+      assert {:error, {:color, "neutral"}, _} =
                Theme.check(Theme.build(Theme.default(), colors: %{neutral: ~RGB"#3b6fa8"}))
 
-      assert {:error, {:color, :info}, _} =
+      assert {:error, {:color, "info"}, _} =
                Theme.check(Theme.build(Theme.default(), roles: %{info: ~RGB"#c23238"}))
     end
 
     @tag verifies: "themes-ramps-contracts"
     test "what is not a ramp, a role or a color" do
-      assert_raise ArgumentError, ~r/ramp :heat breaks its contract: is not a ramp/, fn ->
+      assert_raise ArgumentError, ~r/ramp "heat" breaks its contract: is not a ramp/, fn ->
         Theme.new(ramps: %{heat: [~RGB"#fff", ~RGB"#000"]})
       end
 
       assert_raise ArgumentError,
-                   ~r/color :good breaks its contract: "nope" is text, and a string is never a color/,
+                   ~r/color "good" breaks its contract: "nope" is text, and a string is never a color/,
                    fn ->
                      Theme.new(colors: %{good: "nope"})
                    end
@@ -259,7 +259,7 @@ defmodule Macaw.Layers.Theme.RampsTest do
 
     @tag verifies: "themes-ramps-contracts"
     test "an unknown ramp or a position that is not a number raises" do
-      assert_raise ArgumentError, ~r/unknown ramp :heat/, fn ->
+      assert_raise ArgumentError, ~r/unknown ramp "heat"/, fn ->
         Theme.ramp(Theme.default(), :heat, 0.5)
       end
 
@@ -284,11 +284,11 @@ defmodule Macaw.Layers.Theme.RampsTest do
     @tag verifies: "themes-builtins-values"
     test "new/1 and merge/2 merge ramps and roles key by key" do
       theme = Theme.new(ramps: %{sequential: [~RGB"#fff5eb", ~RGB"#fd8d3c", ~RGB"#8c2d04"]})
-      assert theme.ramps.status == Theme.default().ramps.status
-      assert theme.ramps.sequential == [~RGB"#fff5eb", ~RGB"#fd8d3c", ~RGB"#8c2d04"]
+      assert theme.ramps["status"] == Theme.default().ramps["status"]
+      assert theme.ramps["sequential"] == [~RGB"#fff5eb", ~RGB"#fd8d3c", ~RGB"#8c2d04"]
 
       night = Theme.merge(Theme.dark(), roles: %{info: ~RGB"#5e95d3"})
-      assert night.colors == %{Theme.dark().colors | info: ~RGB"#5e95d3"}
+      assert night.colors == %{Theme.dark().colors | "info" => ~RGB"#5e95d3"}
       assert night.ramps == Theme.dark().ramps
     end
   end

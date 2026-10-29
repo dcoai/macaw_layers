@@ -26,8 +26,8 @@ defmodule Macaw.Layers.Theme.TermsTest do
 
   # The host theme the fixtures hold, as v0.2.4 built it from text, here from terms: pinned
   # steps, a literal operand in each transform, a name as an anchor and literal paints. The
-  # anchor names the host's color by its string: new/1 reads the names of `colors` that way
-  # but not yet a ramp's (#13), and a document reads both so.
+  # anchor names the host's color by its atom, which new/1 holds as its string, as the
+  # document (v0.2.4's included) reads it (spec/04 §2.1).
   defp house do
     Theme.new(
       name: :house,
@@ -36,7 +36,7 @@ defmodule Macaw.Layers.Theme.TermsTest do
       font_family: "Georgia, serif",
       ramps: %{
         status: [~RGB"#4ca34b", ~RGB"#bd7407", ~RGB"#c23238"],
-        sequential: [~RGB"#e9f2fc", {:color, "brand"}, ~RGB"#004580"]
+        sequential: [~RGB"#e9f2fc", {:color, :brand}, ~RGB"#004580"]
       },
       colors: %{
         red: %{500 => ~RGB"#d62728", 100 => ~RGB"#fde8e8", 900 => ~RGB"#5c0f10"},
@@ -189,7 +189,7 @@ defmodule Macaw.Layers.Theme.TermsTest do
         end
 
         for {ramp, hexes} <- golden["ramps"], {hex, i} <- Enum.with_index(hexes) do
-          position = {:ramp, String.to_existing_atom(ramp), i / 20}
+          position = {:ramp, ramp, i / 20}
           assert Theme.resolve(theme, position, :literal) === Color.parse!(hex)
         end
 
