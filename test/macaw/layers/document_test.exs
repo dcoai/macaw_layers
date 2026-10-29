@@ -2,15 +2,21 @@ defmodule Macaw.Layers.DocumentTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias Macaw.Layers.{Document, Fault, Limits, Scan}
+  alias Macaw.Layers.{Document, Fault, Form, Limits, Scan, Vocabulary}
 
   doctest Document
 
+  defmodule Page.Tags do
+    use Macaw.Layers.Tags, live: []
+  end
+
   # A page at version 2. Version 1 held its blocks flat; step 1 wraps each in
-  # `%{"block" => …}`, which deepens the document by one.
+  # `%{"block" => …}`, which deepens the document by one. Its value is judged as terms: a
+  # title, and blocks of anything, a tuple included, which the JSON form can't write.
   defmodule Page do
     @behaviour Macaw.Layers.Version
     @behaviour Macaw.Layers.Document
+    @behaviour Macaw.Layers.Form
 
     @impl Macaw.Layers.Version
     def current, do: 2
@@ -20,15 +26,22 @@ defmodule Macaw.Layers.DocumentTest do
       do: {:ok, Map.update(doc, "blocks", [], fn bs -> Enum.map(bs, &%{"block" => &1}) end)}
 
     @impl Macaw.Layers.Document
-    def validate(doc) do
+    def validate(page) do
       send(self(), :validated)
 
       faults =
-        Document.unknown_keys(doc, ["$version", "title", "blocks"]) ++
-          if(is_binary(doc["title"]), do: [], else: [{["title"], :required}])
+        Document.unknown_keys(page, [:title, :blocks]) ++
+          if(is_binary(page[:title]), do: [], else: [{[:title], :required}])
 
       if faults == [], do: :ok, else: {:error, faults}
     end
+
+    @impl Macaw.Layers.Form
+    def tags, do: Page.Tags
+    @impl Macaw.Layers.Form
+    def keys, do: Vocabulary.table([:title, :blocks, :block])
+    @impl Macaw.Layers.Form
+    def atoms, do: %{}
   end
 
   defp json(term), do: JSON.encode!(term)
@@ -39,13 +52,13 @@ defmodule Macaw.Layers.DocumentTest do
     fetched =
       ~s|{"$version": 1, "title": "Sales", "blocks": ["a", "b"], "on_load": "System.halt()"}|
 
-    assert Document.read(fetched, Page) == {:error, [{["on_load"], :unknown_key}]}
+    assert Form.read(fetched, Page) == {:error, [{["on_load"], :unknown_key}]}
     assert_received :validated
 
     # Without it, the same document is read, migrated and returned at version 2.
     clean = ~s|{"$version": 1, "title": "Sales", "blocks": ["a", "b"]}|
 
-    assert Document.read(clean, Page) ==
+    assert Form.gates(clean, Page) ==
              {:ok,
               %{
                 "$version" => 2,
@@ -53,9 +66,13 @@ defmodule Macaw.Layers.DocumentTest do
                 "blocks" => [%{"block" => "a"}, %{"block" => "b"}]
               }}
 
+    # Then its value is read from the migrated map form, the stamp dropped, and judged.
+    value = %{title: "Sales", blocks: [%{block: "a"}, %{block: "b"}]}
+    assert Form.read(clean, Page) == {:ok, value}
+
     # The map form reads the same, and a host's tighter limits apply to both: at depth 2
     # the document passes, and its migrated blocks, one level deeper, do not.
-    assert {:ok, _} = Document.read(JSON.decode!(clean), Page)
+    assert Form.read(JSON.decode!(clean), Page) == {:ok, value}
 
     grown =
       {:error,
@@ -64,8 +81,8 @@ defmodule Macaw.Layers.DocumentTest do
          {["blocks", 1], {:limit, :depth, 2, 3}}
        ]}
 
-    assert Document.read(clean, Page, limits: [depth: 2]) == grown
-    assert Document.read(JSON.decode!(clean), Page, limits: [depth: 2]) == grown
+    assert Form.read(clean, Page, limits: [depth: 2]) == grown
+    assert Form.read(JSON.decode!(clean), Page, limits: [depth: 2]) == grown
   end
 
   @tag verifies: "gates-bytes"
@@ -73,18 +90,18 @@ defmodule Macaw.Layers.DocumentTest do
     doc = json(%{"title" => "t"})
     size = byte_size(doc)
 
-    assert {:ok, _} = Document.read(doc, Page, limits: [bytes: size])
+    assert {:ok, _} = Form.read(doc, Page, limits: [bytes: size])
 
-    assert Document.read(doc, Page, limits: [bytes: size - 1]) ==
+    assert Form.read(doc, Page, limits: [bytes: size - 1]) ==
              {:error, [{[], {:limit, :bytes, size - 1, size}}]}
 
     # Over the limit and malformed: only the bytes fault, nothing decoded.
-    assert Document.read("{" <> String.duplicate("x", 20), Page, limits: [bytes: 10]) ==
+    assert Form.read("{" <> String.duplicate("x", 20), Page, limits: [bytes: 10]) ==
              {:error, [{[], {:limit, :bytes, 10, 21}}]}
 
     # The map form has no bytes.
     assert {:ok, _} =
-             Document.read(%{"title" => String.duplicate("t", 50)}, Page, limits: [bytes: 10])
+             Form.read(%{"title" => String.duplicate("t", 50)}, Page, limits: [bytes: 10])
   end
 
   defp reductions(fun) do
@@ -114,7 +131,7 @@ defmodule Macaw.Layers.DocumentTest do
     assert decode_work > 10 * work
 
     # Through read/3, the same faults.
-    assert {:error, [{_, {:limit, :depth, 64, 65}}]} = Document.read(deep, Page)
+    assert {:error, [{_, {:limit, :depth, 64, 65}}]} = Form.read(deep, Page)
   end
 
   @tag verifies: "gates-scan-paths"
@@ -172,15 +189,15 @@ defmodule Macaw.Layers.DocumentTest do
   @tag verifies: "gates-json"
   test "malformed JSON is one fault at the root, and a root that is not an object is refused" do
     for bad <- ["{", "{\"a\": }", "[1,]", "tru", "1 2", "", "\"\\u12\"", "}"] do
-      assert {:error, [{[], {:json, words}}]} = Document.read(bad, Page)
+      assert {:error, [{[], {:json, words}}]} = Form.read(bad, Page)
       assert is_binary(words)
       assert Fault.format({[], {:json, words}}) =~ "JSON does not parse"
     end
 
     for not_object <- ["[]", "1", "\"page\"", "null"],
-        do: assert(Document.read(not_object, Page) == {:error, [{[], {:type, :map}}]})
+        do: assert(Form.read(not_object, Page) == {:error, [{[], {:type, :map}}]})
 
-    assert Document.read(:page, Page) == {:error, [{[], {:type, :map}}]}
+    assert Form.read(:page, Page) == {:error, [{[], {:type, :map}}]}
   end
 
   @tag verifies: "gates-json"
@@ -189,60 +206,82 @@ defmodule Macaw.Layers.DocumentTest do
       assert Scan.scan(bytes, Limits.defaults()) == :ok or
                match?({:error, {_, {:limit, _, _, _}}}, Scan.scan(bytes, Limits.defaults()))
 
-      assert match?({:ok, _}, Document.read(bytes, Page)) or
-               match?({:error, [_ | _]}, Document.read(bytes, Page))
+      assert match?({:ok, _}, Form.read(bytes, Page)) or
+               match?({:error, [_ | _]}, Form.read(bytes, Page))
     end
   end
 
   @tag verifies: "gates-order"
-  test "each gate stops the ones after it, and the last reports all its faults" do
+  test "each gate stops the ones after it, and the type's check reports all its faults" do
     # Newer: refused by name, validate never runs.
-    assert Document.read(json(%{"$version" => 3, "ttle" => 1}), Page) ==
+    assert Form.read(json(%{"$version" => 3, "ttle" => 1}), Page) ==
              {:error, [{[], {:newer_schema, 3, 2}}]}
 
     refute_received :validated
 
     # Over a limit: no version read, though the stamp is newer.
     assert {:error, [{_, {:limit, :items, 2, 3}}]} =
-             Document.read(json(%{"$version" => 9, "a" => 1, "b" => 2}), Page, limits: [items: 2])
+             Form.read(json(%{"$version" => 9, "a" => 1, "b" => 2}), Page, limits: [items: 2])
 
     refute_received :validated
 
-    # Valid at version 1: migrated, then validated.
-    assert Document.read(json(%{"$version" => 1, "title" => "t", "blocks" => ["x"]}), Page) ==
-             {:ok, %{"$version" => 2, "title" => "t", "blocks" => [%{"block" => "x"}]}}
+    # Valid at version 1: migrated, then its value read and validated.
+    assert Form.read(json(%{"$version" => 1, "title" => "t", "blocks" => ["x"]}), Page) ==
+             {:ok, %{title: "t", blocks: [%{block: "x"}]}}
 
     assert_received :validated
 
-    # The type's faults and the recount's, together, ordered by path: at version 1 the
-    # document passes depth 2, and the migration wraps its block one level deeper.
+    # The recount is a gate: at version 1 the document passes depth 2, the migration wraps
+    # its block one level deeper, and the recount refuses it before its value is judged.
     doc = json(%{"$version" => 1, "ttle" => "t", "blocks" => ["x"]})
 
-    assert Document.read(doc, Page, limits: [depth: 2]) ==
-             {:error,
-              [
-                {["blocks", 0], {:limit, :depth, 2, 3}},
-                {["title"], :required},
-                {["ttle"], :unknown_key}
-              ]}
+    assert Form.read(doc, Page, limits: [depth: 2]) ==
+             {:error, [{["blocks", 0], {:limit, :depth, 2, 3}}]}
+
+    refute_received :validated
+
+    # Past every gate, the type's faults are all reported, ordered by path, on the value:
+    # its own key as its atom, an unknown one at its spelling.
+    assert Form.read(doc, Page) ==
+             {:error, [{[:title], :required}, {["ttle"], :unknown_key}]}
+
+    assert_received :validated
+  end
+
+  @tag verifies: "gates-value-check"
+  test "a value built in Elixir is judged by check/2 with no encoding, and fails only at the adapter" do
+    # A tuple the page accepts in its blocks, though the JSON form has no form for it.
+    value = %{title: "Plan", blocks: [{:ref, 7}, "text"]}
+    assert Document.check(value, Page) == {:ok, value}
+    assert_received :validated
+
+    assert Form.to_json(value, Page) == {:error, [{[:blocks, 0], {:type, :term}}]}
+
+    # The value's own faults, ordered, whatever no encoding could write.
+    assert Document.check(%{blocks: [{:ref, 7}], titel: self()}, Page) ==
+             {:error, [{[:titel], :unknown_key}, {[:title], :required}]}
+
+    # No limit applies to a value: the limits bound what reading an encoding costs.
+    deep = Enum.reduce(1..100, "leaf", fn _, inner -> [inner] end)
+    assert {:ok, _} = Document.check(%{title: "t", blocks: [deep]}, Page)
   end
 
   @tag verifies: "gates-recount"
   test "a migration that grows a document past a limit is refused after it" do
     assert {:ok, _} =
-             Document.read(
+             Form.read(
                json(%{"$version" => 2, "title" => "t", "blocks" => [%{"block" => "x"}]}),
                Page,
                limits: [depth: 3]
              )
 
-    assert Document.read(json(%{"$version" => 1, "title" => "t", "blocks" => [["x"]]}), Page,
+    assert Form.read(json(%{"$version" => 1, "title" => "t", "blocks" => [["x"]]}), Page,
              limits: [depth: 3]
            ) ==
              {:error, [{["blocks", 0, "block"], {:limit, :depth, 3, 4}}]}
 
     # The map form is walked before and after: the same.
-    assert Document.read(%{"$version" => 1, "title" => "t", "blocks" => [["x"]]}, Page,
+    assert Form.read(%{"$version" => 1, "title" => "t", "blocks" => [["x"]]}, Page,
              limits: [depth: 3]
            ) ==
              {:error, [{["blocks", 0, "block"], {:limit, :depth, 3, 4}}]}
@@ -268,7 +307,7 @@ defmodule Macaw.Layers.DocumentTest do
       assert_raise ArgumentError, fn -> Limits.new(bad) end
     end
 
-    assert_raise ArgumentError, fn -> Document.read("{}", Page, limits: [items: 200_000]) end
+    assert_raise ArgumentError, fn -> Form.read("{}", Page, limits: [items: 200_000]) end
   end
 
   @tag verifies: "gates-limits-raise"
@@ -280,14 +319,14 @@ defmodule Macaw.Layers.DocumentTest do
     blocks = fn n -> JSON.encode!(%{"title" => "t", "blocks" => List.duplicate(["x"], n)}) end
 
     assert {:error, [{["blocks"], {:limit, :items, 100_000, 100_001}}]} =
-             Document.read(blocks.(100_001), Page)
+             Form.read(blocks.(100_001), Page)
 
-    assert {:ok, %{"blocks" => read}} =
-             Document.read(blocks.(100_001), Page, limits: [items: {:raise, 100_001}])
+    assert {:ok, %{blocks: read}} =
+             Form.read(blocks.(100_001), Page, limits: [items: {:raise, 100_001}])
 
     assert length(read) == 100_001
 
-    assert Document.read(blocks.(100_002), Page, limits: [items: {:raise, 100_001}]) ==
+    assert Form.read(blocks.(100_002), Page, limits: [items: {:raise, 100_001}]) ==
              {:error, [{["blocks"], {:limit, :items, 100_001, 100_002}}]}
 
     for bad <- [

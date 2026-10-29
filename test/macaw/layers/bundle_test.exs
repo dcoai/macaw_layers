@@ -188,6 +188,7 @@ defmodule Macaw.Layers.BundleTest do
 
     @tag verifies: "stores-bundle-round-trip"
     test "every fault of the envelope is at its path: unknown keys, required parts, a bad time, parts of the wrong type" do
+      # The map form's own faults, the decoder's, reported before the term is checked.
       map = %{
         "extra" => 1,
         "provenance" => %{"store" => 7, "exported_at" => "2026-10-20T09:30:00+02:00", "ver" => 1},
@@ -198,7 +199,6 @@ defmodule Macaw.Layers.BundleTest do
       assert Bundle.from_map(map, @types) ==
                {:error,
                 [
-                  {[:entries, 0, :fragment], {:type, :map}},
                   {[:entries, 0, :name], :required},
                   {[:entries, 0, "note"], :unknown_key},
                   {[:entries, 1], {:type, :map}},
@@ -206,9 +206,32 @@ defmodule Macaw.Layers.BundleTest do
                   {[:provenance, :store], {:type, :string}},
                   {[:provenance, :version], :required},
                   {[:provenance, "ver"], :unknown_key},
-                  {[:snapshot], {:type, :map}},
                   {["extra"], :unknown_key}
                 ]}
+
+      # A sound envelope decodes, and the term's faults follow, each at the same path.
+      decoded = %{
+        "provenance" => %{
+          "store" => "lib",
+          "exported_at" => "2026-10-20T09:30:00Z",
+          "version" => 0
+        },
+        "entries" => [%{"id" => "style:1", "name" => 2, "fragment" => 3}],
+        "snapshot" => [1]
+      }
+
+      assert Bundle.from_map(decoded, @types) ==
+               {:error,
+                [
+                  {[:entries, 0, :fragment], {:type, :map}},
+                  {[:entries, 0, :name], {:type, :string}},
+                  {[:provenance, :version], {:type, :pos_integer}},
+                  {[:snapshot], {:type, :map}}
+                ]}
+
+      # A part present but null is no map form of it.
+      assert Bundle.from_map(%{"provenance" => nil, "entries" => nil}, @types) ==
+               {:error, [{[:entries], {:type, :list}}, {[:provenance], {:type, :map}}]}
 
       assert Bundle.from_map(%{}, @types) ==
                {:error, [{[:entries], :required}, {[:provenance], :required}]}
@@ -225,13 +248,8 @@ defmodule Macaw.Layers.BundleTest do
         "entries" => [%{"id" => 1, "name" => 2, "fragment" => %{}}]
       }
 
-      assert Bundle.from_map(bad, @types) ==
-               {:error,
-                [
-                  {[:entries, 0, :id], {:type, :id}},
-                  {[:entries, 0, :name], {:type, :string}},
-                  {[:provenance, :version], {:type, :pos_integer}}
-                ]}
+      # An id that is no string is the map form's fault: nothing of the term is judged.
+      assert Bundle.from_map(bad, @types) == {:error, [{[:entries, 0, :id], {:type, :id}}]}
 
       assert Bundle.from_map([], @types) == {:error, [{[], {:type, :map}}]}
       assert {:error, [{[], {:json, _words}}]} = Bundle.from_json("{not json", @types)
@@ -268,17 +286,99 @@ defmodule Macaw.Layers.BundleTest do
         "entries" => entries
       }
 
+      # What only a map form can be wrong in, the decoder's: an id spelling no kind, a
+      # fragment its type does not read.
       assert Bundle.from_map(map, @types) ==
                {:error,
                 [
                   {[:entries, 0, :id], {:type, :id}},
-                  {[:entries, 2, :id], {:duplicate, {:style, 1}}},
-                  {[:entries, 3, :fragment, "mark", "style"], {:unknown_tag, "$nope"}},
-                  {[:entries, 4, :fragment], :no_kind},
-                  {[:entries, 5, :fragment], {:kind, :style, :mark}}
+                  {[:entries, 3, :fragment, "mark", "style"], {:unknown_tag, "$nope"}}
                 ]}
 
       assert_raise ArgumentError, fn -> String.to_existing_atom(spelling) end
+
+      # The rest decode, and the term's check finds the duplicate and the kinds.
+      decoded = %{map | "entries" => entries |> Enum.drop(1) |> List.delete_at(2)}
+
+      assert Bundle.from_map(decoded, @types) ==
+               {:error,
+                [
+                  {[:entries, 1, :id], {:duplicate, {:style, 1}}},
+                  {[:entries, 2, :fragment], :no_kind},
+                  {[:entries, 3, :fragment], {:kind, :style, :mark}}
+                ]}
+    end
+  end
+
+  describe "the term (spec/03 §3.2)" do
+    @tag verifies: "stores-bundle-check"
+    test "a bundle built in Elixir is checked as a term, with no form written or read", %{
+      store: store
+    } do
+      bundle = Bundle.export(store, [{:composite, 1}, {:panel, 1}], "lib")
+      assert Bundle.check(bundle, @types) == {:ok, bundle}
+
+      # A store named by an atom, and a value no form holds that the term allows: the check
+      # passes, and only the JSON form refuses it, at its path.
+      entries = [%{id: {:style, 1}, name: "s", fragment: %{style: %{stroke: {:pen, 2}}}}]
+      held = bundle(entries, :lib)
+      assert Bundle.check(held, @types) == {:ok, held}
+
+      assert Bundle.to_json(held, @types) ==
+               {:error, [{[:entries, 0, :fragment, :style, :stroke], {:type, :term}}]}
+    end
+
+    @tag verifies: "stores-bundle-check"
+    test "every fault of the term is at its path" do
+      provenance = %{store: nil, exported_at: ~N[2026-10-20 09:30:00], version: 0, by: "x"}
+
+      entries = [
+        %{id: {:style, 1}, name: "a", fragment: %{style: %{}}},
+        %{id: {:style, 1}, name: :b, fragment: %{style: %{}}},
+        %{id: "style:2", name: "c", fragment: [], note: 1},
+        %{id: {:widget, 1}, name: "d", fragment: %{style: %{}}},
+        %{id: {:style, 3}, name: "e", fragment: %{mark: %{}}},
+        %{id: {:style, 4}, name: "f", fragment: %{theme: :dark, version: 2}},
+        %{name: "g"},
+        :entry
+      ]
+
+      bundle = %Bundle{provenance: provenance, entries: entries, snapshot: [1]}
+
+      assert Bundle.check(bundle, @types) ==
+               {:error,
+                [
+                  {[:entries, 1, :id], {:duplicate, {:style, 1}}},
+                  {[:entries, 1, :name], {:type, :string}},
+                  {[:entries, 2, :fragment], {:type, :map}},
+                  {[:entries, 2, :id], {:type, :id}},
+                  {[:entries, 2, :note], :unknown_key},
+                  {[:entries, 3, :id], {:type, :id}},
+                  {[:entries, 4, :fragment], {:kind, :style, :mark}},
+                  {[:entries, 5, :fragment], :no_kind},
+                  {[:entries, 6, :fragment], :required},
+                  {[:entries, 6, :id], :required},
+                  {[:entries, 7], {:type, :map}},
+                  {[:provenance, :by], :unknown_key},
+                  {[:provenance, :exported_at], {:type, :utc_datetime}},
+                  {[:provenance, :store], {:type, :string}},
+                  {[:provenance, :version], {:type, :pos_integer}},
+                  {[:snapshot], {:type, :map}}
+                ]}
+
+      assert Bundle.check(%Bundle{entries: %{}}, @types) ==
+               {:error, [{[:entries], {:type, :list}}, {[:provenance], :required}]}
+
+      assert Bundle.check(%Bundle{provenance: [], entries: []}, @types) ==
+               {:error, [{[:provenance], {:type, :map}}]}
+
+      assert Bundle.check(%Bundle{provenance: %{}, entries: []}, @types) ==
+               {:error,
+                [
+                  {[:provenance, :exported_at], :required},
+                  {[:provenance, :store], :required},
+                  {[:provenance, :version], :required}
+                ]}
     end
 
     @tag verifies: "stores-bundle-round-trip"
@@ -383,6 +483,25 @@ defmodule Macaw.Layers.BundleTest do
 
       assert Store.list(checked) == {:ok, []}
       assert {:ok, _imported} = Store.import(checked, bundle(Enum.take(entries, 1)))
+    end
+
+    @tag verifies: "stores-import-term"
+    test "import checks the bundle term, so a bundle read under a raised limit relocates", %{
+      other: other
+    } do
+      long = List.duplicate(1, 100_001)
+      entries = [%{id: {:style, 1}, name: "long", fragment: %{style: %{stroke: long}}}]
+      {:ok, json} = Bundle.to_json(bundle(entries), @types)
+
+      assert {:error, [{["entries", 0, "fragment", "style", "stroke"], {:limit, :items, _, _}}]} =
+               Bundle.from_json(json, @types)
+
+      assert {:ok, read} = Bundle.from_json(json, @types, limits: [items: {:raise, 100_001}])
+
+      # The host raised the limit for this read; the import does not read the bundle
+      # again, so the raise is not lost on the way.
+      assert {:ok, %{ids: %{{:style, 1} => {:style, 1}}}} = Store.relocate(other, read)
+      assert {:ok, %{fragment: %{style: %{stroke: ^long}}}} = Store.get(other, {:style, 1})
     end
 
     @tag verifies: "stores-import-relocation"

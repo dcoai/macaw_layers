@@ -10,22 +10,22 @@ end
 
 defmodule Macaw.Layers.Theme.Document do
   @moduledoc """
-  A theme as a document (spec/04 §5): stored and shipped as a value, and read back through
-  every gate.
+  A theme as a document (spec/04 §5): stored and shipped as a value, and judged as one.
 
-    * the map form is `%{version: v, theme: node}` (`to_map/1`), and a store's fragment
+    * the value is `%{version: v, theme: node}` (`to_map/1`), and a store's fragment
       `%{theme: node}` (`fragment/1`), a library entry of kind `:theme`, reads as the same
       document;
     * the JSON form is `{"$version": v, "theme": {…}}` (`to_json/1`), each color value a tag
       (`$color`, `$series`, `$ramp`, the transforms by name, `$blend`, `$contrast`) and
-      pinned steps `$steps`.
+      pinned steps `$steps`, written and read by the JSON adapter (`Macaw.Layers.Form`).
 
-  Reading (`from_map/2`, `from_json/2`) runs the kernel's gates (spec/01 §5) — the version,
-  the limits, the migration — then reads the form, then: a node that is a **name** reads as
-  the built-in theme of that name, any other name is `{:unknown_theme, name}`; a variable
-  anywhere is `{:unresolved, :var, name}`, since nothing applies a theme; a key the theme
-  does not have is `:unknown_key`; and every contract a ramp, color or palette entry breaks
-  is `{:contract, message}` at `[:theme, :ramps | :colors | :styles, name]`.
+  `from_map/2` judges the value as terms, after the version check, with no form written
+  or read; `from_json/2` reads the JSON form through the adapter's gates (spec/01 §5: the
+  limits, the version, the migration) to the same value. Then: a node that is a **name**
+  reads as the built-in theme of that name, any other name is `{:unknown_theme, name}`; a
+  variable anywhere is `{:unresolved, :var, name}`, since nothing applies a theme; a key
+  the theme does not have is `:unknown_key`; and every contract a ramp, color or palette
+  entry breaks is `{:contract, message}` at `[:theme, :ramps | :colors | :styles, name]`.
 
   As a fragment type (spec/02 §1), `ramps`, `colors`, `styles` and `defaults` are `:union`
   name maps and every other key `:override`, so a theme document stacks over a built-in as
@@ -88,47 +88,38 @@ defmodule Macaw.Layers.Theme.Document do
 
   @doc "The JSON document, `{:ok, json}`, stamped `\"$version\"`."
   @spec to_json(Theme.t()) :: {:ok, String.t()} | {:error, [Fault.t(), ...]}
-  def to_json(%Theme{} = theme) do
-    with {:ok, form} <- Form.to_map(fragment(theme), __MODULE__),
-         do: {:ok, JSON.encode!(Map.put(form, Version.stamp(), current()))}
-  end
+  def to_json(%Theme{} = theme), do: Form.to_json(fragment(theme), __MODULE__)
 
   @doc """
-  The theme a map document or a theme fragment holds, or every fault. `limits:` as
-  `Macaw.Layers.Document.read/3` takes them; `extensions:` the extensions the host
-  registers, which the theme carries and its contracts hold.
+  The theme a document value or a theme fragment holds, judged as terms, or every fault.
+  `extensions:` the extensions the host registers, which the theme carries and its
+  contracts hold. No form is written or read, so no limit applies: the limits bound what
+  reading an encoding costs (`from_json/2`).
   """
   @spec from_map(term(), keyword()) :: {:ok, Theme.t()} | {:error, [Fault.t(), ...]}
   def from_map(document, opts \\ [])
 
   def from_map(document, opts) when is_map(document) and not is_struct(document) do
-    {version, fragment} = Map.pop(document, :version, current())
+    {version, value} = Map.pop(document, :version, current())
 
-    # The version gate first: nothing of a newer document is read, not even to write its
-    # form. A node that is a name is read as one, whatever its spelling.
-    with {:ok, _version} <- Version.check(%{Version.stamp() => version}, __MODULE__) do
-      case fragment do
-        %{theme: name} when map_size(fragment) == 1 and (is_atom(name) or is_binary(name)) ->
-          build(name, Keyword.get(opts, :extensions, []))
-
-        _node ->
-          with {:ok, form} <- Form.to_map(fragment, __MODULE__),
-               do: read(Map.put(form, Version.stamp(), version), opts)
-      end
+    # The version first: nothing of a newer document is judged.
+    with {:ok, _version} <- Version.check(%{Version.stamp() => version}, __MODULE__),
+         {:ok, %{theme: node}} <- Document.check(value, __MODULE__) do
+      build(node, Keyword.get(opts, :extensions, []))
     end
   end
 
   def from_map(_other, _opts), do: {:error, [{[], {:type, :map}}]}
 
-  @doc "The theme a JSON document holds, read as `from_map/2` reads a map, every gate first."
+  @doc """
+  The theme a JSON document holds: read through the JSON adapter (`Macaw.Layers.Form.read/3`:
+  every gate, then the value, judged), then built as `from_map/2` builds it. `limits:` as
+  `Macaw.Layers.Form.gates/3` takes them, and `extensions:` as `from_map/2`.
+  """
   @spec from_json(String.t(), keyword()) :: {:ok, Theme.t()} | {:error, [Fault.t(), ...]}
-  def from_json(json, opts \\ []) when is_binary(json), do: read(json, opts)
-
-  defp read(input, opts) do
-    with {:ok, form} <- Document.read(input, __MODULE__, Keyword.take(opts, [:limits])),
-         {:ok, %{theme: node}} <- Form.from_map(Map.delete(form, Version.stamp()), __MODULE__) do
-      build(node, Keyword.get(opts, :extensions, []))
-    end
+  def from_json(json, opts \\ []) when is_binary(json) do
+    with {:ok, %{theme: node}} <- Form.read(json, __MODULE__, Keyword.take(opts, [:limits])),
+         do: build(node, Keyword.get(opts, :extensions, []))
   end
 
   # -- the theme ---------------------------------------------------------------------------
@@ -255,17 +246,12 @@ defmodule Macaw.Layers.Theme.Document do
   def step(document, _from), do: {:ok, document}
 
   @doc false
-  # The envelope: a theme, as a node or a name, and nothing else.
+  # The envelope, as a value: a theme, as a node or a name, and nothing else. The node is
+  # judged when the theme is built.
   @impl Document
-  def validate(document) do
-    unknown = Document.unknown_keys(document, [Version.stamp(), "theme"])
-
-    theme =
-      case Map.fetch(document, "theme") do
-        :error -> [{[:theme], :required}]
-        {:ok, node} when is_map(node) -> []
-        {:ok, _other} -> []
-      end
+  def validate(value) when is_map(value) and not is_struct(value) do
+    unknown = Document.unknown_keys(value, [:theme])
+    theme = if Map.has_key?(value, :theme), do: [], else: [{[:theme], :required}]
 
     case unknown ++ theme do
       [] -> :ok

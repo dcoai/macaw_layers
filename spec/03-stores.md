@@ -88,9 +88,9 @@ A bundle carries definitions and the bindings inside them, never a host's bindin
 export follows every reference transitively, use sites included, dependencies first and each once, skipping an id the store no longer holds, with provenance of store, time and version
 ```
 
-### 3.2 The forms {#stores-bundle-forms}
+### 3.2 The term and its forms {#stores-bundle-forms}
 
-A bundle has a map form and a JSON form (visualize#818, D-217), so it can leave the node it was made on:
+**A bundle is a term,** `%Macaw.Layers.Bundle{}`, judged as one however it was made (spec/01 §5). Its map form and JSON form (visualize#818, D-217) are representations made at the edge, so it can leave the node it was made on:
 
 ```json
 {"$version": 1,
@@ -101,25 +101,32 @@ A bundle has a map form and a JSON form (visualize#818, D-217), so it can leave 
  "snapshot": null}
 ```
 
-- **Each part is in the form its own document has:** an entry's `id` as `Store.encode_id/1` writes it, its `fragment` in the type's map form (spec/02 §9), **stamped with the type's version where the type has a version line**, so it migrates on reading as a document of its type does, and `snapshot` in its own map form. `exported_at` is ISO 8601 in UTC. A `provenance.store` is its name's string; anything else is `{:type, :string}` at `[:provenance, :store]`, when written and when read.
-- **`Bundle.to_map(bundle, types)` and `to_json(bundle, types)`** answer `{:ok, form}`, or every value without a form by path: an entry's fragment under `[:entries, i, :fragment]`, and an id of a kind none of `types` has as `{:type, :id}` at `[:entries, i, :id]`.
-- **`Bundle.from_map(map, types, opts)` and `from_json(json, types, opts)` read through the kernel's gates** (spec/01 §5, `Document.read/3` with its `limits:`), `Macaw.Layers.Bundle` being the bundle's own `Version` and `Document`: the bytes and the scan, the stamp (`{[], {:newer_schema, needs, this}}`, nothing else read), the migration of the bundle's line, then the envelope, judged by `Bundle.validate/1`, with the `depth` and `items` limits counted again. Only an envelope without faults has its entries read, each by the type its id's kind names, `types` given as a store's. A value that is not a map is `{[], {:type, :map}}`.
-- **The faults of the envelope:**
-  - a key the bundle does not have is `:unknown_key`, at its spelling;
-  - `provenance` and its `store`, `exported_at` and `version`, `entries`, and each entry's `id`, `name` and `fragment` are `:required`;
-  - `provenance` and each entry that is not a map, `entries` that is not a list, a `fragment` or `snapshot` that is not a map, are `{:type, :map}` or `{:type, :list}`;
-  - an `exported_at` that is not a UTC time is `{:type, :utc_datetime}`; a `version` that is not a positive integer `{:type, :pos_integer}`; a `name` that is not a string `{:type, :string}`.
-- **The faults of an entry:**
-  - an `id` that is not of a kind the types have is `{:type, :id}`, since no atom is made from a document's kind;
-  - an id carried twice is `{:duplicate, id}`;
-  - a fragment whose stamp is newer than its type's line is `{:newer_schema, needs, this}` at `[:entries, i, :fragment]`, and one that does not read is its faults under `[:entries, i, :fragment]`;
-  - a fragment that derives to no kind is `:no_kind` there, and one that derives to another kind than its id's `{:kind, id_kind, derived}`.
+- **`Bundle.check(bundle, types)` judges the term,** `types` given as a store's, with no form written or read: `{:ok, bundle}`, or every fault, ordered by path. It is `Document.check/2` of the envelope, `Macaw.Layers.Bundle` being the bundle's own `Document`, whose `validate/1` judges a `%Bundle{}`, and each entry's kind against its type. This is how a bundle built in Elixir is judged, and the last step of reading one. **The faults of the term:**
+  - `provenance` missing (`nil`), and a key missing from it or from an entry, is `:required`; a key neither has is `:unknown_key`;
+  - `provenance` and each entry that is not a map, `entries` that is not a list, a `fragment` or `snapshot` (other than `nil`) that is not a map, are `{:type, :map}` or `{:type, :list}`;
+  - a `store` that is neither a string nor an atom other than `nil`, `true` and `false` is `{:type, :string}`; an `exported_at` that is not a `DateTime` in `Etc/UTC` is `{:type, :utc_datetime}`; a `version` that is not a positive integer `{:type, :pos_integer}`; a `name` that is not a string `{:type, :string}`;
+  - an `id` that is not `{kind, n}`, an atom and a positive integer, or whose kind none of `types` has, is `{:type, :id}`;
+  - an id carried twice is `{:duplicate, id}` at the later entry's `[:entries, i, :id]`;
+  - a fragment that derives to no kind is `:no_kind` at `[:entries, i, :fragment]`, and one that derives to another kind than its id's `{:kind, id_kind, derived}`.
 - **A fragment is not validated as a whole document,** since a fragment may be partial.
+- **Each part's form is the form its own document has:** an entry's `id` as `Store.encode_id/1` writes it, its `fragment` in the type's map form (spec/02 §9), **stamped with the type's version where the type has a version line**, so it migrates on reading as a document of its type does, and `snapshot` in its own map form. `exported_at` is ISO 8601 in UTC. A `provenance.store` is its name's string.
+- **`Bundle.to_map(bundle, types)` and `to_json(bundle, types)`** answer `{:ok, form}`, or every value without a form by path: a store that is no name `{:type, :string}` at `[:provenance, :store]`, an entry's fragment under `[:entries, i, :fragment]`, and an id of a kind none of `types` has as `{:type, :id}` at `[:entries, i, :id]`. A value the term holds validly but no form can write (a tuple in a fragment, say) fails here, at its path, and nowhere else.
+- **`Bundle.from_map(map, types, opts)` and `from_json(json, types, opts)` read a form,** in order:
+  1. **the JSON adapter's gates** (spec/01 §5, `Form.gates/3` with its `limits:`), with the bundle's own version line, `Macaw.Layers.Bundle` being its `Version`: the bytes and the scan, the stamp (`{[], {:newer_schema, needs, this}}`, nothing else read), the migration, the recount. A value that is not a map is `{[], {:type, :map}}`;
+  2. **the envelope's decode of the map form,** reporting what only a map form can be wrong in, all at once: a key the bundle does not have (`:unknown_key`, at its spelling); `provenance`, `entries`, each part of the provenance and each entry's `id`, `name` and `fragment` missing (`:required`); `provenance` or an entry that is not an object, `entries` that is not an array (`{:type, :map}`, `{:type, :list}`); a `store` that is not a string (`{:type, :string}`); an `exported_at` that is not an ISO 8601 time in UTC (`{:type, :utc_datetime}`); an `id` that is not a string (`{:type, :id}`);
+  3. **each entry read by its type,** only once the envelope decodes: its `id` against the kinds of `types`, so no atom is made from a document's kind (an id of no kind is `{:type, :id}`), and its fragment, when a map, through the type its kind names, migrated by the type's own line (a newer stamp is `{:newer_schema, needs, this}` at `[:entries, i, :fragment]`) and read by `Form.from_map/2`, its faults under `[:entries, i, :fragment]`; every entry's faults are reported together;
+  4. **the term's check,** `check/2`, of the `%Bundle{}` the form gave.
 
-`from_map(to_map(b))` is `{:ok, b}`, and `from_json(to_json(b))` is `{:ok, b}` with a store named by an atom read as its string.
+  The faults of the first step that refuses are returned; a later step does not run.
+
+`from_map(to_map(b))` is `{:ok, b}` for a bundle `check/2` holds valid, and `from_json(to_json(b))` is `{:ok, b}` with a store named by an atom read as its string.
 
 ```test:stores-bundle-round-trip
-a bundle round-trips through its map and JSON forms, a fragment stamped with its type's version and migrated on reading; a newer stamp is refused before any key is read, the limits apply, and every fault is at its path: unknown keys, required parts, a bad time, an id of no kind, a duplicate id, a fragment that does not read or has the wrong kind, a value with no form when written
+a bundle round-trips through its map and JSON forms, a fragment stamped with its type's version and migrated on reading; a newer stamp is refused before any key is read, the limits apply, the map form's faults (unknown keys, required parts, a bad time, a store or id that is no string, an id of no kind, a fragment that does not read) come at their paths before the term's (a duplicate id, a fragment of the wrong kind or none, parts of the wrong type), and a value with no form is refused when written
+```
+
+```test:stores-bundle-check
+check/2 holds a bundle built in Elixir valid with no form written or read, a fragment value no form can write included, which to_json/2 then refuses at its path; every fault of the term is at its path: required and unknown keys, a store, time, version, name, id, fragment or snapshot of the wrong type, an id of no kind, a duplicate, a fragment of no kind or another kind
 ```
 
 ### 3.3 Import is a relocation {#stores-import}
@@ -127,7 +134,7 @@ a bundle round-trips through its map and JSON forms, a fragment stamped with its
 Import has every property that ruled out renaming by name: it is bounded to a known set, it happens once at the boundary between stores rather than during editing, and it is one call with one outcome. `Store.relocate(assign, bundle, opts)` is the import every store may use as its own, each entry read through the store's type of its kind:
 
 1. **Every check runs before anything is written:**
-   - the bundle is written to its map form and read back (§3.2), so a bundle built in memory passes the same readers as one read from a file: the bundle's version line, and each fragment through its type's reader, its migrations and its kind;
+   - the bundle term is checked (`Bundle.check/2`, §3.2): its envelope, and each entry's kind against the store's type of it. No form is written or read back, so a bundle judges the same whether it was built in memory or read from a file, and a bundle a host read under a raised limit (`limits: [items: {:raise, n}]`) is not read again under the defaults;
    - the host's `check:` over each entry, `(entry -> :ok | {:error, faults})`, such as every name a fragment uses that the host's registry does not know (macaw_compose spec/12 §1): the registry is the host's, and this library holds none.
 2. **New ids are issued** — each entry put without its id — and one table `old → new` is built.
 3. **References are rewritten through that table** (`Fragment.relocate/3`) and each entry is put again under its new id.
@@ -137,6 +144,10 @@ A reference to an id **outside** the bundle — only possible in a hand-edited f
 
 ```test:stores-import-relocation
 import checks every entry before writing, issues new ids, rewrites every reference through one table, commits whole or reports every fault with nothing written, and reports references outside the bundle as masks
+```
+
+```test:stores-import-term
+import checks the bundle term without writing or reading its form: a bundle read from JSON under a raised items limit, over the default, relocates whole
 ```
 
 ## 4. Ids on object storage {#stores-object}

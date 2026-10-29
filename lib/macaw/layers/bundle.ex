@@ -10,10 +10,14 @@ defmodule Macaw.Layers.Bundle do
         snapshot: nil
       }
 
-  A bundle is read through the kernel's gates (spec/01 §5) with its own version line:
-  this module is a `Macaw.Layers.Version` and a `Macaw.Layers.Document`, whose `validate/1`
-  judges the envelope; each entry's fragment is then read by its own type, at the type's
-  own version where the type has a line.
+  A bundle is a term, judged as one by `check/2` however it was made: this module is a
+  `Macaw.Layers.Document`, whose `validate/1` judges the envelope, and `check/2` adds each
+  entry's kind against the store's types. Its map and JSON forms are made at the edge:
+  `to_map/2` and `to_json/2` write them, and `from_map/3` and `from_json/3` read one
+  through the JSON adapter's gates (`Macaw.Layers.Form.gates/3`, spec/01 §5) with the
+  bundle's own version line (this module is a `Macaw.Layers.Version`), decode the envelope,
+  read each entry's fragment by its own type, at the type's own version where the type has
+  a line, and then check the term.
 
   Ported from visualize's `Visualize.Chart.Builder.Bundle` and its codec, without boards.
   """
@@ -182,10 +186,12 @@ defmodule Macaw.Layers.Bundle do
   # -- reading -----------------------------------------------------------------------------
 
   @doc """
-  The bundle a map form holds (§3.2), read through the kernel's gates with this module's
-  version line — the stamp, the limits, then the envelope — and then each entry's fragment
-  through the type its id names, given as a store's: `{:ok, bundle}` or every fault by path.
-  `limits:` as `Macaw.Layers.Document.read/3` takes them.
+  The bundle a map form holds (§3.2): through the JSON adapter's gates with this module's
+  version line (`Macaw.Layers.Form.gates/3`: the limits, the stamp, the migration, the
+  recount), then the envelope's own decode of the map form, then each entry's fragment read
+  by the type its id names, at the type's own version, and then the bundle judged as a term
+  (`check/2`): `{:ok, bundle}`, or the faults of the first step that refuses it, by path.
+  `types` are a store's; `limits:` as `Macaw.Layers.Form.gates/3` takes them.
   """
   @spec from_map(term(), [module()], keyword()) :: {:ok, t()} | {:error, [Fault.t(), ...]}
   def from_map(map, types, opts \\ [])
@@ -200,67 +206,137 @@ defmodule Macaw.Layers.Bundle do
   def from_json(json, types, opts \\ []) when is_binary(json), do: read(json, types, opts)
 
   defp read(input, types, opts) do
-    with {:ok, document} <- Document.read(input, __MODULE__, opts) do
-      kinds = Store.kinds(types)
-
-      {entries, faults} =
-        document["entries"]
-        |> Enum.with_index()
-        |> Enum.map_reduce({[], MapSet.new()}, fn {entry, i}, {faults, seen} ->
-          {read, more} = read_entry(entry, i, types, kinds, seen)
-          {read, {faults ++ more, MapSet.put(seen, read.id)}}
-        end)
-
-      case elem(faults, 0) do
-        [] -> {:ok, bundle(document, entries)}
-        faults -> {:error, Fault.sort(faults)}
-      end
+    with {:ok, form} <- Form.gates(input, __MODULE__, opts),
+         :ok <- faults(envelope(form)),
+         {:ok, bundle} <- decode(form, types) do
+      check(bundle, types)
     end
   end
 
-  defp bundle(document, entries) do
-    provenance = document["provenance"]
-    {:ok, exported_at, 0} = DateTime.from_iso8601(provenance["exported_at"])
+  defp faults([]), do: :ok
+  defp faults(faults), do: {:error, Fault.sort(faults)}
 
-    %__MODULE__{
-      provenance: %{
-        store: provenance["store"],
-        exported_at: exported_at,
-        version: provenance["version"]
-      },
-      entries: entries,
-      snapshot: document["snapshot"]
-    }
+  # The envelope's map form, as only a map form can be wrong: a key the bundle does not
+  # have, a part missing, a part that is not the map or list it holds, a store that is not
+  # a string, a time that is not ISO 8601 in UTC, an id that is not a string. What a value
+  # can be wrong in too (a name, a fragment, a version, the snapshot) is the term's check.
+  defp envelope(form) do
+    Document.unknown_keys(form, @top) ++
+      required(form, ~w(provenance entries), []) ++
+      part(form, "provenance", &provenance_form/1) ++
+      part(form, "entries", &entries_form/1)
   end
 
-  defp read_entry(%{"id" => spelled, "name" => name, "fragment" => form}, i, types, kinds, seen) do
+  # A part the map form holds, judged; a missing one is `required/3`'s.
+  defp part(form, key, judge) do
+    case Map.fetch(form, key) do
+      {:ok, value} -> judge.(value)
+      :error -> []
+    end
+  end
+
+  defp required(map, keys, path) do
+    for key <- keys,
+        not Map.has_key?(map, key),
+        do: {path ++ [Map.fetch!(@paths, key)], :required}
+  end
+
+  defp provenance_form(provenance) when is_map(provenance) do
+    Document.unknown_keys(provenance, @provenance, [:provenance]) ++
+      required(provenance, @provenance, [:provenance]) ++
+      case provenance do
+        %{"store" => store} when not is_binary(store) ->
+          [{[:provenance, :store], {:type, :string}}]
+
+        _ ->
+          []
+      end ++
+      case Map.fetch(provenance, "exported_at") do
+        {:ok, iso} -> if utc_iso8601(iso), do: [], else: [exported_at_fault()]
+        :error -> []
+      end
+  end
+
+  defp provenance_form(_other), do: [{[:provenance], {:type, :map}}]
+
+  defp utc_iso8601(iso) when is_binary(iso),
+    do: match?({:ok, _time, 0}, DateTime.from_iso8601(iso))
+
+  defp utc_iso8601(_other), do: false
+
+  defp exported_at_fault, do: {[:provenance, :exported_at], {:type, :utc_datetime}}
+
+  defp entries_form(entries) when is_list(entries) do
+    entries
+    |> Enum.with_index()
+    |> Enum.flat_map(fn
+      {entry, i} when is_map(entry) ->
+        Document.unknown_keys(entry, @entry, [:entries, i]) ++
+          required(entry, @entry, [:entries, i]) ++
+          if(is_binary(Map.get(entry, "id", "")),
+            do: [],
+            else: [{[:entries, i, :id], {:type, :id}}]
+          )
+
+      {_entry, i} ->
+        [{[:entries, i], {:type, :map}}]
+    end)
+  end
+
+  defp entries_form(_other), do: [{[:entries], {:type, :list}}]
+
+  # The bundle a sound envelope holds: each id read against the types' kinds, so no atom is
+  # made from a document's kind, and each fragment read by its type.
+  defp decode(form, types) do
+    kinds = Store.kinds(types)
+
+    {entries, faults} =
+      form["entries"]
+      |> Enum.with_index()
+      |> Enum.map(fn {entry, i} -> read_entry(entry, i, types, kinds) end)
+      |> Enum.unzip()
+
+    with :ok <- faults(Enum.concat(faults)) do
+      provenance = form["provenance"]
+      {:ok, exported_at, 0} = DateTime.from_iso8601(provenance["exported_at"])
+
+      {:ok,
+       %__MODULE__{
+         provenance: %{
+           store: provenance["store"],
+           exported_at: exported_at,
+           version: provenance["version"]
+         },
+         entries: entries,
+         snapshot: form["snapshot"]
+       }}
+    end
+  end
+
+  defp read_entry(%{"id" => spelled, "name" => name, "fragment" => form}, i, types, kinds) do
     case Store.decode_id(kinds, spelled) do
       :error ->
         {%{id: nil, name: name, fragment: form}, [{[:entries, i, :id], {:type, :id}}]}
 
-      {:ok, id} ->
-        duplicate = if id in seen, do: [{[:entries, i, :id], {:duplicate, id}}], else: []
-        {fragment, faults} = read_fragment(form, id, Store.type_of(types, elem(id, 0)), types)
+      {:ok, {kind, _n} = id} ->
+        case read_fragment(form, Store.type_of(types, kind)) do
+          {:ok, fragment} ->
+            {%{id: id, name: name, fragment: fragment}, []}
 
-        faults =
-          Enum.map(faults, fn {path, reason} -> {[:entries, i, :fragment | path], reason} end)
-
-        {%{id: id, name: name, fragment: fragment}, duplicate ++ faults}
+          {:error, faults} ->
+            {%{id: id, name: name, fragment: form},
+             Enum.map(faults, fn {path, reason} -> {[:entries, i, :fragment | path], reason} end)}
+        end
     end
   end
 
-  defp read_fragment(form, {kind, _n}, type, types) do
-    with {:ok, form} <- migrate(form, type),
-         {:ok, fragment} <- Form.from_map(form, type) do
-      case Store.kind(types, fragment) do
-        {_type, ^kind} -> {fragment, []}
-        {_type, derived} -> {fragment, [{[], {:kind, kind, derived}}]}
-        nil -> {fragment, [{[], :no_kind}]}
-      end
-    else
-      {:error, faults} -> {form, faults}
-    end
+  # A fragment that is not a map is no form of its type; it is kept as it is, for the
+  # term's check to refuse.
+  defp read_fragment(form, type) when is_map(form) do
+    with {:ok, form} <- migrate(form, type), do: Form.from_map(form, type)
   end
+
+  defp read_fragment(other, _type), do: {:ok, other}
 
   # A fragment carries its type's stamp where the type has a version line, and migrates as
   # a document of the type does; the stamp is the line's, not data.
@@ -273,19 +349,65 @@ defmodule Macaw.Layers.Bundle do
     end
   end
 
-  # -- the envelope ------------------------------------------------------------------------
+  # -- the term ----------------------------------------------------------------------------
+
+  @doc """
+  The bundle judged as a term (§3.2), however it was made: its envelope by `validate/1`
+  (`Macaw.Layers.Document.check/2`), and each entry's kind against the type its id names,
+  `types` given as a store's: an id of a kind none of them has is `{:type, :id}`, a
+  fragment that derives to no kind `:no_kind`, and one that derives to another kind than
+  its id's `{:kind, id_kind, derived}`. `{:ok, bundle}`, or every fault, ordered by path.
+
+  This is how a bundle built in Elixir is judged; no form is written or read, so a value
+  only an encoding can't hold fails at that encoding (`to_map/2`), not here.
+  """
+  @spec check(t(), [module()]) :: {:ok, t()} | {:error, [Fault.t(), ...]}
+  def check(%__MODULE__{} = bundle, types) when is_list(types) do
+    envelope =
+      case Document.check(bundle, __MODULE__) do
+        {:ok, _bundle} -> []
+        {:error, faults} -> faults
+      end
+
+    case envelope ++ kinds(bundle.entries, types) do
+      [] -> {:ok, bundle}
+      faults -> {:error, Fault.sort(faults)}
+    end
+  end
+
+  # Each well-formed entry's kind; a malformed one is the envelope's fault.
+  defp kinds(entries, types) when is_list(entries) do
+    entries
+    |> Enum.with_index()
+    |> Enum.flat_map(fn
+      {%{id: {kind, _n} = id, fragment: fragment}, i} when is_map(fragment) ->
+        if id?(id) and not is_struct(fragment), do: kind(kind, fragment, i, types), else: []
+
+      _other ->
+        []
+    end)
+  end
+
+  defp kinds(_entries, _types), do: []
+
+  defp kind(kind, fragment, i, types) do
+    if Store.type_of(types, kind) == nil do
+      [{[:entries, i, :id], {:type, :id}}]
+    else
+      case Store.kind(types, fragment) do
+        {_type, ^kind} -> []
+        {_type, derived} -> [{[:entries, i, :fragment], {:kind, kind, derived}}]
+        nil -> [{[:entries, i, :fragment], :no_kind}]
+      end
+    end
+  end
 
   @doc false
-  # The envelope at the current version, every fault by path; the fragments are read after
-  # it, by their own types.
+  # The envelope as a term, every fault by path; the entries' kinds are `check/2`'s, which
+  # knows the store's types.
   @impl Document
-  def validate(document) do
-    faults =
-      Document.unknown_keys(document, @top) ++
-        required(document, ~w(provenance entries), []) ++
-        provenance(document["provenance"]) ++
-        entries(document["entries"]) ++
-        snapshot(document["snapshot"])
+  def validate(%__MODULE__{provenance: provenance, entries: entries, snapshot: snapshot}) do
+    faults = provenance(provenance) ++ entries(entries) ++ snapshot(snapshot)
 
     case faults do
       [] -> :ok
@@ -293,78 +415,86 @@ defmodule Macaw.Layers.Bundle do
     end
   end
 
-  defp required(map, keys, path) do
-    for key <- keys,
-        not Map.has_key?(map, key),
-        do: {path ++ [Map.fetch!(@paths, key)], :required}
-  end
+  defp provenance(nil), do: [{[:provenance], :required}]
 
-  defp provenance(nil), do: []
-
-  defp provenance(provenance) when is_map(provenance) do
-    Document.unknown_keys(provenance, @provenance, [:provenance]) ++
-      required(provenance, @provenance, [:provenance]) ++
-      store(provenance["store"]) ++
-      exported_at(provenance["exported_at"]) ++
-      version(provenance["version"])
+  defp provenance(provenance) when is_map(provenance) and not is_struct(provenance) do
+    Document.unknown_keys(provenance, [:store, :exported_at, :version], [:provenance]) ++
+      for(
+        key <- [:store, :exported_at, :version],
+        not Map.has_key?(provenance, key),
+        do: {[:provenance, key], :required}
+      ) ++
+      Enum.flat_map(provenance, &provenance_part/1)
   end
 
   defp provenance(_other), do: [{[:provenance], {:type, :map}}]
 
-  defp store(nil), do: []
-  defp store(store) when is_binary(store), do: []
-  defp store(_store), do: [{[:provenance, :store], {:type, :string}}]
+  defp provenance_part({:store, store}) when is_binary(store), do: []
 
-  defp exported_at(nil), do: []
+  defp provenance_part({:store, store}) when is_atom(store) and store not in [nil, true, false],
+    do: []
 
-  defp exported_at(iso) when is_binary(iso) do
-    case DateTime.from_iso8601(iso) do
-      {:ok, _time, 0} -> []
-      _ -> [{[:provenance, :exported_at], {:type, :utc_datetime}}]
-    end
-  end
-
-  defp exported_at(_other), do: [{[:provenance, :exported_at], {:type, :utc_datetime}}]
-
-  defp version(nil), do: []
-  defp version(n) when is_integer(n) and n > 0, do: []
-  defp version(_other), do: [{[:provenance, :version], {:type, :pos_integer}}]
-
-  defp entries(nil), do: []
+  defp provenance_part({:store, _store}), do: [{[:provenance, :store], {:type, :string}}]
+  defp provenance_part({:exported_at, %DateTime{time_zone: "Etc/UTC"}}), do: []
+  defp provenance_part({:exported_at, _other}), do: [exported_at_fault()]
+  defp provenance_part({:version, n}) when is_integer(n) and n > 0, do: []
+  defp provenance_part({:version, _n}), do: [{[:provenance, :version], {:type, :pos_integer}}]
+  defp provenance_part(_unknown), do: []
 
   defp entries(entries) when is_list(entries) do
-    entries
-    |> Enum.with_index()
-    |> Enum.flat_map(fn
-      {entry, i} when is_map(entry) ->
-        Document.unknown_keys(entry, @entry, [:entries, i]) ++
-          required(entry, @entry, [:entries, i]) ++
-          entry_parts(entry, i)
+    indexed = Enum.with_index(entries)
+
+    Enum.flat_map(indexed, fn
+      {entry, i} when is_map(entry) and not is_struct(entry) ->
+        Document.unknown_keys(entry, [:id, :name, :fragment], [:entries, i]) ++
+          for(
+            key <- [:id, :name, :fragment],
+            not Map.has_key?(entry, key),
+            do: {[:entries, i, key], :required}
+          ) ++
+          Enum.flat_map(entry, &entry_part(&1, i))
 
       {_entry, i} ->
         [{[:entries, i], {:type, :map}}]
-    end)
+    end) ++ duplicates(indexed)
   end
 
   defp entries(_other), do: [{[:entries], {:type, :list}}]
 
-  defp entry_parts(entry, i) do
-    name =
-      if is_binary(Map.get(entry, "name", "")),
-        do: [],
-        else: [{[:entries, i, :name], {:type, :string}}]
+  defp entry_part({:id, id}, i),
+    do: if(id?(id), do: [], else: [{[:entries, i, :id], {:type, :id}}])
 
-    id =
-      if is_binary(Map.get(entry, "id", "")), do: [], else: [{[:entries, i, :id], {:type, :id}}]
+  defp entry_part({:name, name}, _i) when is_binary(name), do: []
+  defp entry_part({:name, _name}, i), do: [{[:entries, i, :name], {:type, :string}}]
 
-    fragment =
-      if is_map(Map.get(entry, "fragment", %{})),
-        do: [],
-        else: [{[:entries, i, :fragment], {:type, :map}}]
+  defp entry_part({:fragment, fragment}, _i) when is_map(fragment) and not is_struct(fragment),
+    do: []
 
-    id ++ name ++ fragment
+  defp entry_part({:fragment, _fragment}, i), do: [{[:entries, i, :fragment], {:type, :map}}]
+  defp entry_part(_unknown, _i), do: []
+
+  defp id?({kind, n}),
+    do: is_atom(kind) and kind not in [nil, true, false] and is_integer(n) and n > 0
+
+  defp id?(_other), do: false
+
+  # Every id carried again after its first entry.
+  defp duplicates(indexed) do
+    indexed
+    |> Enum.reduce({[], MapSet.new()}, fn
+      {%{id: id}, i}, {faults, seen} when is_tuple(id) ->
+        if id?(id) and id in seen,
+          do: {[{[:entries, i, :id], {:duplicate, id}} | faults], seen},
+          else: {faults, MapSet.put(seen, id)}
+
+      _other, acc ->
+        acc
+    end)
+    |> elem(0)
   end
 
-  defp snapshot(snapshot) when is_nil(snapshot) or is_map(snapshot), do: []
+  defp snapshot(snapshot) when is_nil(snapshot) or (is_map(snapshot) and not is_struct(snapshot)),
+    do: []
+
   defp snapshot(_other), do: [{[:snapshot], {:type, :map}}]
 end

@@ -1,12 +1,12 @@
 defmodule Macaw.Layers.Theme.DocumentTest do
   @moduledoc """
-  A theme as a document (spec/04 §5): its map and JSON forms, stamped with the schema
-  version and read back through the version gate, the limits, per-kind validity and the
-  contracts, every fault in the kernel's shape.
+  A theme as a document (spec/04 §5): its value and JSON form, the value judged as terms
+  after the version check, the JSON form read back through the adapter's gates, and both
+  held to per-kind validity and the contracts, every fault in the kernel's shape.
   """
   use ExUnit.Case, async: true
 
-  alias Macaw.Layers.{Fault, Theme, Var}
+  alias Macaw.Layers.{Fault, Form, Theme, Var}
   alias Macaw.Layers.Theme.Document
 
   doctest Document
@@ -109,14 +109,15 @@ defmodule Macaw.Layers.Theme.DocumentTest do
                {:error, [{["$version"], {:type, :pos_integer}}]}
     end
 
-    @tag verifies: "themes-document-forms"
-    test "the limits are applied to the document as given" do
+    @tag verifies: "themes-document-value"
+    test "the limits are the JSON form's, and a value is judged with none" do
       node = %{series: List.duplicate("#3b6fa8", 6)}
 
-      # The limits gate walks the document's form, before any key is read (spec/01 §5).
-      assert Document.from_map(%{theme: node}, limits: [items: 5]) ==
-               {:error, [{["theme", "series"], {:limit, :items, 5, 6}}]}
+      # A value is no encoding: nothing reads it, so no limit bounds it (spec/01 §5).
+      assert {:ok, %Theme{series: series}} = Document.from_map(%{theme: node})
+      assert series == node.series
 
+      # The limits gate walks the JSON form, before any key is read.
       json = JSON.encode!(%{"$version" => 1, "theme" => %{"series" => node.series}})
 
       assert {:error, [{path, {:limit, :items, 5, 6}}]} =
@@ -149,12 +150,33 @@ defmodule Macaw.Layers.Theme.DocumentTest do
       # The envelope's own faults (spec/01 §3): a key it does not know at its own spelling, a
       # missing theme required, and a value that is not a map document.
       assert Document.from_map(%{theme: %{}, styles: %{}}) ==
-               {:error, [{["styles"], :unknown_key}]}
+               {:error, [{[:styles], :unknown_key}]}
+
+      assert Document.from_json(~s({"theme": {}, "stles": {}})) ==
+               {:error, [{["stles"], :unknown_key}]}
 
       assert Document.from_map(%{axis: "#000000"}) ==
-               {:error, [{[:theme], :required}, {["axis"], :unknown_key}]}
+               {:error, [{[:axis], :unknown_key}, {[:theme], :required}]}
 
       assert Document.from_map(@house) == {:error, [{[], {:type, :map}}]}
+    end
+
+    @tag verifies: "themes-document-value"
+    test "a value is judged as terms, never through its form" do
+      # Root defaults built in Elixir under an atom key the JSON form has no spelling for:
+      # the form refuses the value, and the theme, which holds a name outside its
+      # vocabulary by its string, takes it.
+      node = %{defaults: %{line: %{curve: %{type: :step}}}}
+
+      assert Form.to_map(%{theme: node}, Document) ==
+               {:error, [{[:theme, :defaults, :line], :unknown_key}]}
+
+      assert {:ok, theme} = Document.from_map(%{theme: node})
+      assert theme.defaults == %{"line" => %{curve: %{type: "step"}}}
+
+      # The same theme as the JSON form spells it reads back as the same theme.
+      assert {:ok, json} = Document.to_json(@house)
+      assert Document.from_json(json) == Document.from_map(Document.to_map(@house))
     end
 
     @tag verifies: "themes-document-forms"

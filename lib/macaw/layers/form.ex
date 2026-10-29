@@ -1,14 +1,27 @@
 defmodule Macaw.Layers.Form do
   @moduledoc """
-  A document's map form and JSON form, exact inverses for valid values (spec/01 §6).
+  The JSON adapter (spec/01 §5, §6): a document's map form and JSON form, and reading a JSON
+  document through the gates to its value.
 
   The **value** is the document as Elixir holds it: atom keys where the type has a key,
-  string names elsewhere, atoms, times. Its **map form** is JSON-ready: string keys, and a
-  tag (`Macaw.Layers.Tags`) for every value JSON can't express. Its **JSON form** is that
-  map encoded. For a valid value:
+  string names elsewhere, atoms, times. It is the one true form: the type judges it
+  (`Macaw.Layers.Document.check/2`), and it is what is built, stored and compared. Its
+  **map form** is JSON-ready: string keys, and a tag (`Macaw.Layers.Tags`) for every value
+  JSON can't express. Its **JSON form** is that map encoded. Both are representations, made
+  here at the edge.
+
+  **The codec**, `to_map/2` and `from_map/2`, converts between the value and the map form,
+  exact inverses with no gates and no validation. For a value with a form:
 
       from_map(to_map(value)) == {:ok, value}
       to_map(from_map(map))   == {:ok, map}    # for a map to_map/2 wrote
+
+  **The adapter** reads an encoding that comes from elsewhere: `gates/3` takes a JSON
+  document, or its decoded map form, through the gates (the bytes, the scan, the version,
+  the migration, the recount) to the map form at the type's current version, and `read/3`
+  then reads the value from it and judges the value by its type. `to_json/2` writes the
+  value's JSON form, stamped with the type's version. A value with no form fails here, at
+  its path, never where it was built.
 
   A document type implements this behavior: its tag table, the keys it reads as atoms, and
   the atoms a `$atom` may spell, each a closed table (`Macaw.Layers.Vocabulary`), so no
@@ -30,7 +43,7 @@ defmodule Macaw.Layers.Form do
   no form: it is refused at its path as `{:type, :term}`.
   """
 
-  alias Macaw.Layers.{Callback, Document, Fault, Tags, Vocabulary}
+  alias Macaw.Layers.{Callback, Document, Fault, Limits, Scan, Tags, Version, Vocabulary}
 
   @stamp "$version"
 
@@ -48,6 +61,9 @@ defmodule Macaw.Layers.Form do
   """
   @callback decode_value(tag :: String.t(), payload :: term()) :: {:ok, term()} | :default
   @optional_callbacks encode_value: 1, decode_value: 2
+
+  @typedoc "`gates/3`'s and `read/3`'s options."
+  @type option :: {:limits, keyword() | map()}
 
   @doc "The value's map form: `{:ok, map}`, or every value and key without one, by path."
   @spec to_map(map(), module()) :: {:ok, map()} | {:error, [Fault.t(), ...]}
@@ -72,12 +88,6 @@ defmodule Macaw.Layers.Form do
     end
   end
 
-  @doc "The value's JSON form."
-  @spec to_json(map(), module()) :: {:ok, binary()} | {:error, [Fault.t(), ...]}
-  def to_json(value, type) do
-    with {:ok, map} <- to_map(value, type), do: {:ok, JSON.encode!(map)}
-  end
-
   @doc """
   The value a map form holds: its tags held to the type's table, its keys read against the
   type's keys, its `$atom`s against the type's atoms; `{:ok, value}` or every fault.
@@ -95,15 +105,129 @@ defmodule Macaw.Layers.Form do
   def from_map(_map, _type), do: {:error, [{[], {:type, :map}}]}
 
   @doc """
-  The value a JSON document holds, read through every gate (`Macaw.Layers.Document.read/3`)
-  and then from its map form. `type` implements this behavior, `Macaw.Layers.Version` and
-  `Macaw.Layers.Document`.
+  The value's JSON form, stamped `"$version"` with the type's current version where the
+  type has a version line (`c:Macaw.Layers.Version.current/0`): `{:ok, json}`, or every
+  value and key without a form, by path. The value is not judged here: that is
+  `Macaw.Layers.Document.check/2`.
   """
-  @spec from_json(binary(), module(), [Document.option()]) ::
-          {:ok, map()} | {:error, [Fault.t(), ...]}
-  def from_json(json, type, opts \\ []) when is_binary(json) do
-    with {:ok, map} <- Document.read(json, type, opts), do: from_map(map, type)
+  @spec to_json(map(), module()) :: {:ok, binary()} | {:error, [Fault.t(), ...]}
+  def to_json(value, type) do
+    with {:ok, map} <- to_map(value, type), do: {:ok, JSON.encode!(stamp(map, type))}
   end
+
+  defp stamp(map, type) do
+    if Callback.exported?(type, :current, 0),
+      do: Map.put(map, @stamp, type.current()),
+      else: map
+  end
+
+  @doc """
+  A document from elsewhere through the gates, in order (spec/01 §5): `{:ok, map}`, its
+  map form at the type's current version, stamp included, or every fault of the first gate
+  that refuses it.
+
+  1. **bytes**: a JSON document longer than the `bytes` limit is refused;
+  2. **decode** with the `depth` and `items` limits, by `Macaw.Layers.Scan`, which stops at
+     a limit before any value is built; only then is it decoded, with Elixir's `JSON`, and
+     its root must be an object. A map form given directly skips the bytes and is walked
+     for `depth` and `items` instead (`Macaw.Layers.Limits.structure/2`);
+  3. **version**: a newer stamp is refused by name before anything else is read;
+  4. **migrate**, step by step;
+  5. **recount** `depth` and `items`, since a migration can grow a document.
+
+  `type` implements `Macaw.Layers.Version`. `limits:` tightens the limits, or raises one by
+  name, as `Macaw.Layers.Limits.new/1` takes them. Nothing in the document is evaluated,
+  and its value is not judged: that is `read/3`.
+  """
+  @spec gates(binary() | map(), module(), [option()]) :: {:ok, map()} | {:error, [Fault.t(), ...]}
+  def gates(input, type, opts \\ []) when is_atom(type) do
+    limits = Limits.new(Keyword.get(opts, :limits, []))
+
+    with {:ok, map} <- decode_input(input, limits),
+         {:ok, map} <- Version.migrate(map, type) do
+      recount(map, limits)
+    end
+  end
+
+  @doc """
+  The value a document from elsewhere holds: through `gates/3`, then read from its map form
+  (`from_map/2`, the stamp dropped), then judged by its type
+  (`Macaw.Layers.Document.check/2`); `{:ok, value}`, or the faults of the first step that
+  refuses it.
+
+  `input` is a JSON document, a binary, or its decoded map form. `type` implements this
+  behavior, `Macaw.Layers.Version` and `Macaw.Layers.Document`. `limits:` as `gates/3`
+  takes them.
+  """
+  @spec read(binary() | map(), module(), [option()]) :: {:ok, term()} | {:error, [Fault.t(), ...]}
+  def read(input, type, opts \\ []) when is_atom(type) do
+    with {:ok, map} <- gates(input, type, opts),
+         {:ok, value} <- from_map(Map.delete(map, @stamp), type) do
+      Document.check(value, type)
+    end
+  end
+
+  # -- the gates ------------------------------------------------------------------------
+
+  defp decode_input(json, limits) when is_binary(json) do
+    with :ok <- bytes(json, limits),
+         :ok <- scan(json, limits),
+         {:ok, term} <- json_decode(json) do
+      object(term)
+    end
+  end
+
+  defp decode_input(map, limits) when is_map(map) and not is_struct(map) do
+    case Limits.structure(map, limits) do
+      [] -> {:ok, map}
+      faults -> {:error, faults}
+    end
+  end
+
+  defp decode_input(_other, _limits), do: {:error, [{[], {:type, :map}}]}
+
+  defp bytes(json, %{bytes: max}) when byte_size(json) > max,
+    do: {:error, [{[], {:limit, :bytes, max, byte_size(json)}}]}
+
+  defp bytes(_json, _limits), do: :ok
+
+  defp scan(json, limits) do
+    case Scan.scan(json, limits) do
+      :ok -> :ok
+      {:error, fault} -> {:error, [fault]}
+    end
+  end
+
+  defp json_decode(json) do
+    case JSON.decode(json) do
+      {:ok, term} -> {:ok, term}
+      {:error, reason} -> {:error, [{[], {:json, json_words(reason)}}]}
+    end
+  end
+
+  # A document is an object at its root.
+  defp object(map) when is_map(map), do: {:ok, map}
+  defp object(_other), do: {:error, [{[], {:type, :map}}]}
+
+  # A migration can grow a document, so the migrated map form is counted again.
+  defp recount(map, limits) do
+    case Limits.structure(map, limits) do
+      [] -> {:ok, map}
+      faults -> {:error, faults}
+    end
+  end
+
+  # Elixir's `JSON` reasons, as a person reads them.
+  defp json_words({:unexpected_end, offset}),
+    do: "it ends at byte #{offset}, before the value does"
+
+  defp json_words({:invalid_byte, offset, byte}),
+    do: "unexpected byte #{inspect(<<byte>>)} at byte #{offset}"
+
+  defp json_words({:unexpected_sequence, offset, bytes}),
+    do: "unexpected #{inspect(bytes)} at byte #{offset}"
+
+  defp json_words(other), do: inspect(other)
 
   # -- encode ---------------------------------------------------------------------------
 

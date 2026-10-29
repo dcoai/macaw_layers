@@ -187,9 +187,10 @@ defmodule Macaw.Layers.Store do
   A bundle imported through the store's own `put/2` (§3.3): every check first, then new
   ids issued, then every reference rewritten through one table and each entry put again.
 
-  The checks: the bundle read again through its forms (`Macaw.Layers.Bundle`), so its
-  version and every fragment go through their readers, and the host's `check:` over each
-  entry. A fault anywhere writes nothing; every fault is reported at `[:entries, i | path]`.
+  The checks: the bundle judged as a term (`Macaw.Layers.Bundle.check/2`), its envelope
+  and each entry's kind against the store's types, with no form written or read back, and
+  the host's `check:` over each entry. A fault anywhere writes nothing; every fault is
+  reported at `[:entries, i | path]`.
 
   - `check:` — `(entry -> :ok | {:error, [fault]})`, the host's own check, such as names
     its registry does not know;
@@ -208,10 +209,9 @@ defmodule Macaw.Layers.Store do
   def relocate(assign, %Bundle{} = bundle, opts \\ []) do
     types = types(assign)
 
-    with {:ok, map} <- Bundle.to_map(bundle, types),
-         {:ok, read} <- Bundle.from_map(map, types),
-         :ok <- host_check(read.entries, Keyword.get(opts, :check)) do
-      run = fn state, put -> write(types, read.entries, state, put) end
+    with {:ok, bundle} <- Bundle.check(bundle, types),
+         :ok <- host_check(bundle.entries, Keyword.get(opts, :check)) do
+      run = fn state, put -> write(types, bundle.entries, state, put) end
 
       case Keyword.fetch(opts, :transaction) do
         {:ok, transaction} -> transaction.(run)

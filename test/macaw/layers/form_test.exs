@@ -107,9 +107,10 @@ defmodule Macaw.Layers.FormTest do
       assert Form.from_map(map, Card) == {:ok, v}
       assert Form.to_map(elem(Form.from_map(map, Card), 1), Card) == {:ok, map}
 
+      # The JSON form is stamped with the type's version, and the adapter's read drops it.
       assert {:ok, json} = Form.to_json(v, Card)
-      assert {:ok, read} = Form.from_json(json, Card)
-      assert read == Map.put_new(v, "$version", 1)
+      assert JSON.decode!(json)["$version"] == 1
+      assert Form.read(json, Card) == {:ok, Map.delete(v, "$version")}
     end
   end
 
@@ -136,11 +137,34 @@ defmodule Macaw.Layers.FormTest do
 
     assert {:ok, json} = Form.to_json(value, Card)
     assert JSON.decode!(json) == map
-    assert Form.from_json(json, Card) == {:ok, value}
 
-    # Read through the gates: a host's limits apply to the JSON form.
-    assert {:error, [{[], {:limit, :items, 2, 3}}]} =
-             Form.from_json(json, Card, limits: [items: 2])
+    # Read through the gates to the map form at the current version, then to the value,
+    # the stamp the line's and not data.
+    assert Form.gates(json, Card) == {:ok, map}
+    assert Form.read(json, Card) == {:ok, Map.delete(value, "$version")}
+    assert Form.read(map, Card) == {:ok, Map.delete(value, "$version")}
+
+    # A host's limits apply to the JSON form and the map form alike.
+    assert {:error, [{[], {:limit, :items, 2, 3}}]} = Form.read(json, Card, limits: [items: 2])
+    assert {:error, [{[], {:limit, :items, 2, 5}}]} = Form.gates(map, Card, limits: [items: 2])
+  end
+
+  @tag verifies: "forms-json-stamp"
+  test "to_json stamps a type with a version line and no other, and read refuses a newer stamp" do
+    assert {:ok, json} = Form.to_json(%{title: "t"}, Card)
+    assert JSON.decode!(json) == %{"$version" => 1, "title" => "t"}
+
+    # A fragment type with no version line is written with no stamp.
+    alias Macaw.Layers.Test.Design
+    assert {:ok, json} = Form.to_json(%{styles: %{"s" => %{fill: "red"}}}, Design)
+    assert JSON.decode!(json) == %{"styles" => %{"s" => %{"fill" => "red"}}}
+
+    assert Form.read(~s({"$version": 2, "title": "t"}), Card) ==
+             {:error, [{[], {:newer_schema, 2, 1}}]}
+
+    # A tag the value reads wrong stops the read before the value is judged.
+    assert Form.read(~s({"kind": {"$atom": "chart_9q"}}), Card) ==
+             {:error, [{[:kind], {:enum, [:chart, :table, :text]}}]}
   end
 
   @tag verifies: "forms-terms"

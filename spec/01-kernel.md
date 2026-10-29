@@ -12,8 +12,9 @@ The kernel generalizes what visualize built for its designs, fragments, boards, 
 | `Macaw.Layers.Vocabulary` | closed vocabularies looked up by spelling | 2 |
 | `Macaw.Layers.Fault` | the fault `{path, reason}`, its order, and the one formatter | 3 |
 | `Macaw.Layers.Version` | one version line per document type, and stepwise migration | 4 |
-| `Macaw.Layers.Document`, `Macaw.Layers.Limits`, `Macaw.Layers.Scan` | the gates, in order | 5 |
-| `Macaw.Layers.Tags`, `Macaw.Layers.Form` | the map and JSON forms, and the `$` tag table | 6 |
+| `Macaw.Layers.Document` | a value judged by its type, `check/2`, with no encoding | 5 |
+| `Macaw.Layers.Form`, `Macaw.Layers.Limits`, `Macaw.Layers.Scan` | the JSON adapter: the gates, in order, and reading a document to its value | 5 |
+| `Macaw.Layers.Tags`, `Macaw.Layers.Form` | the map and JSON forms: the codec, `to_json/2`, and the `$` tag table | 6 |
 | `Macaw.Layers.Document.digest/1` | a canonical digest | 7 |
 | `Macaw.Layers.Callback` | optional callbacks, found whether or not their module is loaded | 9 |
 
@@ -156,20 +157,26 @@ over generated documents and versions, migrating gives the same result twice, an
 
 ## 5. The gates {#kernel-gates}
 
-**Every document is read through the same gates, in this order,** by `Macaw.Layers.Document.read/3` (`read(input, type, opts)`), whether it came from a file, a database or an object store. A fetched document is untrusted input: the same gates apply, and nothing in it is evaluated. The type implements the behaviors `Macaw.Layers.Version` (§4) and `Macaw.Layers.Document`, whose one callback, `validate/1`, judges a document at the current version.
+**A document's one true form is its value: BEAM terms.** An encoding (the JSON form, or any other) is a representation, made and read by an **adapter at the edge**. A representation never decides a value's validity or which values it may hold: the type judges the value, and a value an adapter can't represent fails at that adapter, never where it was built (macaw#188).
+
+**The type judges its value.** A document type implements the behavior `Macaw.Layers.Document`, whose one callback, `validate/1`, judges the type's **value**: the terms Elixir holds (atom keys where the type has a key, string names elsewhere, atoms, times, the type's own structs), at the current version. `Macaw.Layers.Document.check/2` (`check(value, type)`) is how any value is judged, built in Elixir or read from an encoding: `{:ok, value}`, or the type's faults, ordered by path. No encoding is written or read, and no limit applies: the limits bound what reading an encoding costs.
+
+**An encoding from elsewhere is read through the gates,** in this order, by the JSON adapter (§6): `Macaw.Layers.Form.gates/3` (`gates(input, type, opts)`), whether the document came from a file, a database or an object store. A fetched document is untrusted input: the same gates apply, and nothing in it is evaluated. The type implements `Macaw.Layers.Version` (§4).
 
 1. **Bytes.** An encoded document (a JSON binary) longer than the `bytes` limit is refused as `{[], {:limit, :bytes, max, given}}` before anything else is done with it.
 2. **Decode with `depth` and `items` limits, by a scan that stops at a limit.** `Macaw.Layers.Scan` walks the encoded bytes, tracking strings and their escapes, the nesting, and the entries of each object and array. It builds no value: it holds one frame per open container and the current key of each open object, so its fault can name a path. **It stops at the first limit it passes** and reports that one. Only a document that passes the scan is decoded, with Elixir's `JSON`.
    - Malformed JSON is `{[], {:json, words}}`. The scan never fails on malformed input: what it can't make sense of, it leaves to the decoder.
    - A document whose root is not an object is `{[], {:type, :map}}`.
-   - A map given directly (the map form) skips the bytes gate and is walked for the same limits instead (`Macaw.Layers.Limits.structure/2`), every fault reported.
-3. **Version** (§4): a newer stamp is refused by name before anything else of the value is read.
-4. **Migrate** (§4), step by step.
-5. **Validate**, by the type's `validate/1`, and **count `depth` and `items` again**, since a migration can grow a document. Both sets of faults are reported, ordered by path.
+   - A decoded map form given directly skips the bytes gate and is walked for the same limits instead (`Macaw.Layers.Limits.structure/2`), every fault reported.
+3. **Version** (§4): a newer stamp is refused by name before anything else of the document is read.
+4. **Migrate** (§4), step by step, on the map form.
+5. **Recount `depth` and `items`,** since a migration can grow a document, every fault reported.
 
-Faults from one gate stop the gates after it: a document over a limit is not decoded, and one that does not decode has no version to read. `read/3` returns `{:ok, document}`, the map at the current version, or `{:error, faults}`.
+Faults from one gate stop the gates after it: a document over a limit is not decoded, one that does not decode has no version to read, and one the recount refuses is not read further. `gates/3` returns `{:ok, map}`, the map form at the type's current version, its stamp included, or `{:error, faults}`.
 
-**The limits** (`Macaw.Layers.Limits`):
+**`Macaw.Layers.Form.read/3`** (`read(input, type, opts)`) reads the value a document from elsewhere holds: the gates, then the value from the map form by `from_map/2` (§6), the stamp dropped, then the value judged by `Document.check/2`. It returns `{:ok, value}`, or the faults of the first step that refuses: a gate's, the map form's (a tag, a key or an atom the type does not read), or the type's. The type implements `Version`, `Form` and `Document`.
+
+**The limits** (`Macaw.Layers.Limits`) are the adapter's:
 
 | Limit | Default | Bounds |
 |---|---|---|
@@ -177,12 +184,12 @@ Faults from one gate stop the gates after it: a document over a limit is not dec
 | `depth` | `64` | how deeply objects and arrays nest; the document itself is depth 1 |
 | `items` | `100_000` | the entries any one object or array holds |
 
-- **A host may tighten every limit,** by `limits:` in `read/3`'s options; a limit it does not name keeps its default. A plain value above the default, one that is not a positive integer, or a name that is not a limit raises `ArgumentError` when the limits are built (`Limits.new/1`): a host can't loosen a sanity limit by mistake.
+- **A host may tighten every limit,** by `limits:` in `gates/3`'s and `read/3`'s options; a limit it does not name keeps its default. A plain value above the default, one that is not a positive integer, or a name that is not a limit raises `ArgumentError` when the limits are built (`Limits.new/1`): a host can't loosen a sanity limit by mistake.
 - **A host may raise a limit only by naming the raise,** per limit: `limits: [items: {:raise, 500_000}]`. The host knows its inputs are trusted and large (a bundle import of a whole library); Macaw knows only generic sanity values. A raise not above the default raises `ArgumentError`, so a raise always says what it is, and a document over the raised value is still refused with the same `{:limit, name, max, given}` fault.
 - **Depth:** a container beyond the limit is reported once, at its own path, as `{path, {:limit, :depth, max, max + 1}}`, and nothing inside it is walked.
 - **Items:** a container over the limit is reported at its own path as `{path, {:limit, :items, max, given}}`. The scan stops once a container holds one entry more than the limit, so its *given* is `max + 1`; the walk of a map form counts every entry. A key that appears twice in one object is counted twice by the scan, as the document holds it twice.
 
-**Unknown keys are refused by name,** at their own spelling: a key the document type does not know is `{path ++ [key], :unknown_key}`, with *key* the string the document wrote. `Macaw.Layers.Document.unknown_keys/3` gives these faults for a map and the type's known keys, for a type's `validate/1` to report.
+**Unknown keys are refused by name,** at their own key: a key the document type does not know is `{path ++ [key], :unknown_key}`. A key a reader keeps at its own spelling, a string (§6), is named as the document wrote it. `Macaw.Layers.Document.unknown_keys/3` gives these faults for a map and the type's known keys, for a type's `validate/1` to report.
 
 ```test:gates-bytes
 a document one byte over a tightened bytes limit is refused as the bytes fault alone, and one at the limit passes; a map form skips the gate
@@ -205,7 +212,11 @@ malformed JSON is one {:json, words} fault at the root, never a crash, whatever 
 ```
 
 ```test:gates-order
-a newer stamp is refused before the type's validate/1 runs; a document over a limit is not version-checked; the type's faults and the recount's are reported together, ordered by path
+a newer stamp is refused before the type's validate/1 runs; a document over a limit is not version-checked; a migrated document the recount refuses is not read or judged; past the gates, the type's faults on the value are all reported, ordered by path
+```
+
+```test:gates-value-check
+check/2 judges a value built in Elixir with no encoding and no limit: a value holding a tuple the type accepts is {:ok, value}, and Form.to_json/2 refuses it at that path as {:type, :term}; an invalid value has every fault of the type's, ordered by path
 ```
 
 ```test:gates-recount
@@ -221,17 +232,20 @@ Limits.new/1 tightens a named limit and keeps the rest at their defaults; a loos
 ```
 
 ```test:gates-unknown-keys
-unknown_keys/3 refuses each key not among the known ones at its own spelling under the given path, ordered, and refuses none of the known
+unknown_keys/3 refuses each key not among the known ones at its own key under the given path, ordered, and refuses none of the known
 ```
 
 ## 6. Forms and tags {#kernel-forms}
 
-**A document has three forms, and the conversions between them are exact inverses for valid values.**
-- The **value** is the document as Elixir holds it: atom keys where the type has a key, string names elsewhere, atoms, times.
+**A document has one true form, its value, and two representations made from it by the JSON adapter.**
+- The **value** is the document as Elixir holds it: atom keys where the type has a key, string names elsewhere, atoms, times, the type's own structs. The type judges it (§5).
 - The **map form** is JSON-ready: string keys, and a tag for every value JSON can't express.
-- The **JSON form** is the map form encoded.
+- The **JSON form** is the map form encoded, stamped with the type's version.
 
-`Macaw.Layers.Form` converts between them: `to_map/2` and `from_map/2`, `to_json/2`, and `from_json/3`, which reads through every gate (§5) and then from the map form. `encode_term/2` writes one term's map form, `{:ok, form}` or its faults by path, for a type writing a payload of its own tag whose keys are the tag's, not data (spec/02 §9). For a valid value, `from_map(to_map(v)) == {:ok, v}`; for a map form `to_map/2` wrote, `to_map(from_map(m)) == {:ok, m}`.
+`Macaw.Layers.Form` is the JSON adapter:
+- **The codec,** `to_map/2` and `from_map/2`, converts between the value and the map form, exact inverses with no gates and no validation: for a value with a form, `from_map(to_map(v)) == {:ok, v}`; for a map form `to_map/2` wrote, `to_map(from_map(m)) == {:ok, m}`. `encode_term/2` writes one term's map form, `{:ok, form}` or its faults by path, for a type writing a payload of its own tag whose keys are the tag's, not data (spec/02 §9).
+- **Writing,** `to_json/2`: the value's map form, encoded, with the stamp `"$version"` set to the type's current version where the type has a version line (it exports `current/0`, found as §9 says) and no stamp where it has none. A value with no form is refused here, at its path, though `Document.check/2` holds it valid: the adapter's limits on what it can write are not the value's.
+- **Reading,** `gates/3` and `read/3` (§5): a JSON document, or its decoded map form, through the gates to the map form at the current version, and from it to the value, judged. `read(to_json(v))` is `{:ok, v}` for a valid value with a form.
 
 A document type implements the behavior `Macaw.Layers.Form`:
 - `tags/0`, its tag table;
@@ -248,16 +262,20 @@ A document type implements the behavior `Macaw.Layers.Form`:
 | a list | a list |
 | a map | an object, keyed as below |
 
-- **Keys are decoded against the type's tables.** A key the type's `keys/0` has becomes the atom; any other stays a string, at its own spelling, for the validator to refuse (§5). In the value, an atom key must be one of the type's keys (else `:unknown_key` when written), and a string key must not be spelled like one (`:key_spelling`), since it would read back as the key. A key that is neither an atom nor a string is `{:type, :name}`.
+- **Keys are decoded against the type's tables.** A key the type's `keys/0` has becomes the atom; any other stays a string, at its own spelling, for the type's `validate/1` to refuse (§5). In the value, an atom key must be one of the type's keys (else `:unknown_key` when written), and a string key must not be spelled like one (`:key_spelling`), since it would read back as the key. A key that is neither an atom nor a string is `{:type, :name}`.
 - **Values JSON can't express use one table of `$` tags.** A tag is a one-key object whose key starts with a single `$`. Each type declares its table with `use Macaw.Layers.Tags`, listing its live, retired and renamed tags; the kernel's `$atom`, `$time` and `$version` are live in every table. `Macaw.Layers.Tags` supplies:
   - `tag/2`, a macro in the table's module that refuses at compile time a literal tag the table does not list as live, so nothing is written that a reader would refuse;
   - `read/2`, which holds a parsed document to the table: a renamed tag is read under its new name, and an unknown or retired tag is refused at the path of its object, `{:unknown_tag, tag}` or `{:retired_tag, tag, why}`, never read as data;
   - **escaping:** a data key that starts with `$` is written with one more `$` and read back with one fewer, so data may hold any key, and `$$` never names a tag. The stamp `"$version"` at a document's root is not data and is not escaped.
 - A live tag the type writes is read by its `decode_value/2`; one it doesn't read is `{path, {:unknown_tag, tag}}`.
-- **Documents hold no functions, credentials or source configuration.** A function, a PID, a reference, a port, a tuple or a struct the type doesn't write has no form, and is refused at its path as `{:type, :term}`. Credentials and source configuration are the host's; a document names sources and state by name only ([macaw_compose 01](https://github.com/dcoai/macaw/blob/main/spec/01-vocabulary.md#vocab-data)).
+- **A form holds no functions, and no document holds credentials or source configuration.** A function, a PID, a reference, a port, a tuple or a struct the type doesn't write has no form, and is refused at its path as `{:type, :term}` when written (`to_map/2`, `to_json/2`); whether a value may hold one is the type's `validate/1` to say. Credentials and source configuration are the host's; a document names sources and state by name only ([macaw_compose 01](https://github.com/dcoai/macaw/blob/main/spec/01-vocabulary.md#vocab-data)).
 
 ```test:forms-round-trip
-over generated valid values (type keys, string names, atoms of the type, UTC times, nesting, $-keys), from_map(to_map(v)) is {:ok, v} and from_json(to_json(v)) reads it back; to_map(from_map(m)) is {:ok, m} for the map forms written
+over generated valid values (type keys, string names, atoms of the type, UTC times, nesting, $-keys), from_map(to_map(v)) is {:ok, v} and read(to_json(v)) reads it back, the stamp dropped; to_map(from_map(m)) is {:ok, m} for the map forms written
+```
+
+```test:forms-json-stamp
+to_json/2 stamps the type's current version where the type has a version line and writes no stamp for a type without one; read/3 of the JSON form and of the map form give the value, gates/3 the stamped map form, and a newer stamp or a $atom the type lacks is refused before the value is judged
 ```
 
 ```test:forms-terms
