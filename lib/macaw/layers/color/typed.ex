@@ -30,9 +30,10 @@ defmodule Macaw.Layers.Color.Typed do
   def ops, do: @ops
 
   @doc false
-  # Whether a term is a color value of spec/04 §1.3, its operands included.
+  # Whether a term is a color value of spec/04 §1.3, its operands included: a literal is
+  # the canonical `%Macaw.Layers.Color{}`, and a string is never a color.
   @spec value?(term()) :: boolean()
-  def value?(v) when is_binary(v), do: true
+  def value?(%Color{} = literal), do: Color.literal?(literal)
   def value?({:color, name}), do: name?(name)
   def value?({:series, i}), do: is_integer(i) and i >= 1
   def value?({:ramp, name, t}), do: name?(name) and unit?(t)
@@ -71,32 +72,27 @@ defmodule Macaw.Layers.Color.Typed do
   def names(_other), do: []
 
   @doc false
-  # The literal strings among a value's operands that no transform could compute from:
-  # strings `Macaw.Layers.Color.parse/1` does not read. A literal that is the whole value is a
-  # CSS color as written and is never computed, so it is not among them.
-  @spec unreadable(term()) :: [String.t()]
-  def unreadable(value) do
-    if transform?(value), do: value |> operands() |> Enum.reject(&readable?/1), else: []
+  # A color value as a fault's message names it: a literal by its CSS text (spec/04 §1.6),
+  # quoted, inside whatever transform holds it; any other term as `inspect/1` writes it.
+  @spec describe(term()) :: String.t()
+  def describe(%Color{} = literal) do
+    if Color.literal?(literal), do: inspect(Color.to_css(literal)), else: inspect(literal)
   end
 
-  defp operands(v) when is_binary(v), do: [v]
-  defp operands({op, c, _t}) when op in @ops, do: operands(c)
-  defp operands({:blend, list}) when is_list(list), do: Enum.flat_map(list, &operands/1)
-  defp operands({:contrast, c}), do: operands(c)
-  defp operands(_other), do: []
+  def describe({:blend, list}) when is_list(list),
+    do: "{:blend, [" <> Enum.map_join(list, ", ", &describe/1) <> "]}"
 
-  @hex ~r/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
+  def describe({:contrast, c}), do: "{:contrast, #{describe(c)}}"
+  def describe({op, c, t}) when op in @ops, do: "{#{inspect(op)}, #{describe(c)}, #{inspect(t)}}"
+  def describe(other), do: inspect(other)
 
   @doc false
-  # A literal `parse/1` reads, checked without letting a malformed hex digit raise in it:
-  # what a schema's value color is held to when it is a string (spec/04 §4).
-  @spec readable?(String.t()) :: boolean()
-  def readable?(literal) when is_binary(literal) do
-    trimmed = String.trim(literal)
-
-    if String.starts_with?(trimmed, "#"),
-      do: Regex.match?(@hex, trimmed),
-      else: Color.parse(trimmed) != nil
+  # What a fault says of text given where a color belongs: a string is never a color, and
+  # the two edges that read one (spec/04 §1.6).
+  @spec text_hint(String.t()) :: String.t()
+  def text_hint(text) when is_binary(text) do
+    "#{inspect(text)} is text, and a string is never a color: read it with " <>
+      "Macaw.Layers.Color.parse!/1, or write ~RGB#{inspect(text)}"
   end
 
   @doc false
@@ -112,17 +108,25 @@ defmodule Macaw.Layers.Color.Typed do
   # -- resolution -------------------------------------------------------------------------
 
   @doc false
-  # A color value against a theme, in `mode` (spec/04 §1.4, §3.2). A bare atom is still
-  # read as the slot it named, for the callers that hold one: a scale's range, a component.
-  @spec resolve(term(), Theme.t(), Theme.mode()) :: String.t()
-  def resolve(v, _theme, _mode) when is_binary(v), do: v
+  # A color value against a theme, in `mode` (spec/04 §1.4, §3.2): `:literal` a literal
+  # color, `:css` its CSS text. A bare atom is still read as the slot it named, for the
+  # callers that hold one: a scale's range, a component.
+  @spec resolve(term(), Theme.t(), Theme.mode()) :: Color.t() | String.t()
+  def resolve(%Color{} = literal, _theme, mode) do
+    cond do
+      not Color.literal?(literal) -> invalid!(literal)
+      mode == :css -> Color.to_css(literal)
+      true -> literal
+    end
+  end
+
   def resolve({:color, name}, theme, mode), do: Theme.resolve(theme, name, mode)
   def resolve({:series, _} = slot, theme, mode), do: Theme.resolve(theme, slot, mode)
   def resolve({:ramp, _, _} = position, theme, mode), do: Theme.resolve(theme, position, mode)
   # The ink over whatever is under the text; with nothing known under it, the background's
   # (spec/04 §3.2). A mark's inline label inks against its element instead.
-  def resolve({:contrast, :under}, theme, _mode), do: Theme.ink(theme, nil)
-  def resolve({:contrast, c}, theme, _mode), do: ink(c, theme)
+  def resolve({:contrast, :under}, theme, mode), do: theme |> Theme.ink(nil) |> written(mode)
+  def resolve({:contrast, c}, theme, mode), do: c |> ink(theme) |> written(mode)
 
   def resolve(value, theme, mode) when is_tuple(value) do
     cond do
@@ -136,6 +140,10 @@ defmodule Macaw.Layers.Color.Typed do
     do: Theme.resolve(theme, slot, mode)
 
   def resolve(value, _theme, _mode), do: invalid!(value)
+
+  # The ink is a literal in both modes (visualize D-123): in `:css`, its text.
+  defp written(literal, :css), do: Color.to_css(literal)
+  defp written(literal, _mode), do: literal
 
   @doc false
   # A color value as OKLab and its alpha, `{{l, a, b}, alpha}`, unmapped: a step of a chain
@@ -168,14 +176,14 @@ defmodule Macaw.Layers.Color.Typed do
         polar(c, theme, fn {l, ch, h} -> {l + (toward - l) * u, ch * k, h} end)
 
       literal ->
-        literal |> parsed!() |> oklab()
+        oklab(literal)
     end
   end
 
   def compute({:blend, list}, theme), do: blend(list, theme)
-  def compute({:contrast, :under}, theme), do: theme |> Theme.ink(nil) |> parsed!() |> oklab()
-  def compute({:contrast, c}, theme), do: c |> ink(theme) |> parsed!() |> oklab()
-  def compute(value, theme), do: value |> resolve(theme, :literal) |> parsed!() |> oklab()
+  def compute({:contrast, :under}, theme), do: theme |> Theme.ink(nil) |> oklab()
+  def compute({:contrast, c}, theme), do: c |> ink(theme) |> oklab()
+  def compute(value, theme), do: value |> resolve(theme, :literal) |> literal!() |> oklab()
 
   defp polar(c, theme, fun) do
     {lab, alpha} = compute(c, theme)
@@ -232,39 +240,43 @@ defmodule Macaw.Layers.Color.Typed do
     Theme.ink(theme, Color.rgb(over.(r, br) * 255, over.(g, bg) * 255, over.(b, bb) * 255))
   end
 
-  defp background(theme) do
-    case Color.parse(theme.background || "") do
-      %Color{r: r, g: g, b: b} -> {r / 255, g / 255, b / 255}
-      nil -> {1.0, 1.0, 1.0}
-    end
+  defp background(%Theme{background: background}) do
+    if Color.literal?(background),
+      do: {background.r / 255, background.g / 255, background.b / 255},
+      else: {1.0, 1.0, 1.0}
   end
 
   defp oklab(%Color{r: r, g: g, b: b, opacity: alpha}),
     do: {Ok.from_srgb({r / 255, g / 255, b / 255}), alpha * 1.0}
 
-  defp parsed!(literal) do
-    Color.parse(literal) ||
-      raise ArgumentError,
-            "a color transform's operand must resolve to a color Macaw.Layers.Color.parse/1 " <>
-              "reads, got #{inspect(literal)}"
+  # What a name resolves to in a theme built by hand, the escape hatch, may be no color.
+  defp literal!(literal) do
+    if Color.literal?(literal),
+      do: literal,
+      else:
+        raise(
+          ArgumentError,
+          "a color transform's operand must resolve to a color, a literal " <>
+            "%Macaw.Layers.Color{}, got #{inspect(literal)}"
+        )
   end
 
   @doc false
-  # An OKLab color and alpha as the literal a canvas takes: `#rrggbb`, with `aa` below an
-  # alpha of 1, gamut-mapped (spec/04 §1.3).
-  @spec literal({{number(), number(), number()}, number()}) :: String.t()
+  # An OKLab color and alpha as the literal a canvas takes, gamut-mapped and quantized to
+  # 8 bits, channels and alpha alike, so `:literal` and the CSS written of it agree on the
+  # one color (spec/04 §1.3, §1.4).
+  @spec literal({{number(), number(), number()}, number()}) :: Color.t()
   def literal({lab, alpha}) do
     {r, g, b} = Ok.map_to_srgb(lab)
-    # An alpha that rounds to the opaque byte is opaque: no `ff` written after the color.
-    alpha = if round(alpha * 255) >= 255, do: 1.0, else: alpha
-    Color.to_hex(Color.rgb(r * 255, g * 255, b * 255, alpha))
+    %Color{r: r, g: g, b: b, opacity: alpha} = Color.rgb(r * 255, g * 255, b * 255, alpha)
+    Color.rgb(round(r), round(g), round(b), round(alpha * 255) / 255)
   end
 
   # -- :css (spec/04 §1.4) ------------------------------------------------------------
 
   # A transform as the CSS that computes it, its operands each in their own `:css` form, so
   # a stylesheet's theme switch carries through it.
-  defp css(v, _theme) when is_binary(v), do: v
+  defp css(%Color{} = literal, theme), do: resolve(literal, theme, :css)
   defp css({:contrast, _} = ink, theme), do: resolve(ink, theme, :css)
 
   defp css({:intensity, c, t}, theme),
@@ -292,7 +304,7 @@ defmodule Macaw.Layers.Color.Typed do
         "oklch(from #{css(c, theme)} calc(#{sign} * #{num(u)}) calc(c * #{num(k)}) h / alpha)"
 
       {literal, {:color, name}} ->
-        "var(--mw-#{name |> to_string() |> String.replace("_", "-")}-#{n}, #{literal})"
+        "var(--mw-#{name |> to_string() |> String.replace("_", "-")}-#{n}, #{Color.to_css(literal)})"
     end
   end
 
@@ -348,6 +360,6 @@ defmodule Macaw.Layers.Color.Typed do
   defp invalid!(value) do
     raise ArgumentError,
           "not a color value: #{inspect(value)}; a color is color(name), ramp(name, t), " <>
-            "{:series, i}, a literal string or a transform of them (spec/04 §1.3)"
+            "{:series, i}, a literal %Macaw.Layers.Color{} or a transform of them (spec/04 §1.3)"
   end
 end

@@ -6,6 +6,8 @@ defmodule Macaw.Layers.Theme.DocumentTest do
   """
   use ExUnit.Case, async: true
 
+  import Macaw.Layers.Color, only: [sigil_RGB: 2]
+
   alias Macaw.Layers.{Bundle, Fault, Form, Store, Theme, Var}
   alias Macaw.Layers.Store.Memory
   alias Macaw.Layers.Theme.Document
@@ -14,11 +16,11 @@ defmodule Macaw.Layers.Theme.DocumentTest do
 
   @house Theme.new(
            name: :house,
-           series: ~w(#2f5d8a #b5651d #a23b3b),
-           background: "#fbfaf6",
+           series: [~RGB"#2f5d8a", ~RGB"#b5651d", ~RGB"#a23b3b"],
+           background: ~RGB"#fbfaf6",
            font_family: "Georgia, serif",
-           ramps: %{status: ~w(#4ca34b #bd7407 #c23238)},
-           roles: %{info: "#2f5d8a"}
+           ramps: %{status: [~RGB"#4ca34b", ~RGB"#bd7407", ~RGB"#c23238"]},
+           roles: %{info: ~RGB"#2f5d8a"}
          )
 
   @themes [Theme.default(), Theme.dark(), Theme.color_safe(), @house]
@@ -42,7 +44,7 @@ defmodule Macaw.Layers.Theme.DocumentTest do
       # Every name a string (spec/01 §1), the library's read back as its atoms.
       assert node.ramps == strings(@house.ramps)
       assert node.colors == strings(@house.colors)
-      assert node.colors["info"] == "#2f5d8a"
+      assert node.colors["info"] === ~RGB"#2f5d8a"
       assert node.styles == strings(@house.styles)
       # Every field but a counterpart the theme does not declare, root defaults it does not
       # set, and the host's extensions, which never travel.
@@ -70,7 +72,11 @@ defmodule Macaw.Layers.Theme.DocumentTest do
       decoded = JSON.decode!(json)
       assert decoded["$version"] == Document.current()
       assert decoded["theme"]["name"] == "house"
-      assert decoded["theme"]["ramps"]["status"] == ~w(#4ca34b #bd7407 #c23238)
+      # A literal is tagged $rgb (spec/04 §1.6, §5).
+      assert decoded["theme"]["ramps"]["status"] ==
+               Enum.map(~w(#4ca34b #bd7407 #c23238), &%{"$rgb" => &1})
+
+      assert decoded["theme"]["background"] == %{"$rgb" => "#fbfaf6"}
     end
 
     @tag verifies: "themes-document-forms"
@@ -84,13 +90,13 @@ defmodule Macaw.Layers.Theme.DocumentTest do
           do: assert(node |> Map.fetch!(key) |> Map.keys() |> Enum.all?(&is_binary/1))
 
       {:ok, json} = Document.to_json(@house)
-      assert JSON.decode!(json)["theme"]["colors"]["info"] == "#2f5d8a"
-      assert {:ok, %Theme{colors: %{info: "#2f5d8a"}}} = Document.from_json(json)
+      assert JSON.decode!(json)["theme"]["colors"]["info"] == %{"$rgb" => "#2f5d8a"}
+      assert {:ok, %Theme{colors: %{info: ~RGB"#2f5d8a"}}} = Document.from_json(json)
 
       # A node spelling the library's names as atoms builds the same theme.
       atoms = %{
-        ramps: %{status: ~w(#4ca34b #bd7407 #c23238)},
-        colors: %{info: "#2f5d8a"},
+        ramps: %{status: [~RGB"#4ca34b", ~RGB"#bd7407", ~RGB"#c23238"]},
+        colors: %{info: ~RGB"#2f5d8a"},
         styles: %{muted: %{opacity: 0.4}}
       }
 
@@ -101,7 +107,7 @@ defmodule Macaw.Layers.Theme.DocumentTest do
 
       # A name the theme holds as both its atom and its string is written as the atom's
       # entry, the one it draws with.
-      both = Theme.new(name: :house, colors: %{"info" => "#123456"})
+      both = Theme.new(name: :house, colors: %{"info" => ~RGB"#123456"})
       assert Document.node(both).colors["info"] == both.colors.info
     end
 
@@ -138,8 +144,8 @@ defmodule Macaw.Layers.Theme.DocumentTest do
 
     @tag verifies: "themes-document-forms"
     test "a partial node names only what it changes; the rest is the default's" do
-      {:ok, theme} = Document.from_map(%{theme: %{axis: "#111111"}})
-      assert theme == Theme.new(axis: "#111111")
+      {:ok, theme} = Document.from_map(%{theme: %{axis: ~RGB"#111111"}})
+      assert theme == Theme.new(axis: ~RGB"#111111")
     end
   end
 
@@ -147,10 +153,10 @@ defmodule Macaw.Layers.Theme.DocumentTest do
     @tag verifies: "themes-document-forms"
     test "a newer document is refused by name before a key is read" do
       assert Document.from_map(%{version: 4, theme: %{nonsense: 1}}) ==
-               {:error, [{[], {:newer_schema, 4, 1}}]}
+               {:error, [{[], {:newer_schema, 4, 2}}]}
 
       assert Document.from_json(~s({"$version": 4, "theme": {"never_an_atom_4c1": 1}})) ==
-               {:error, [{[], {:newer_schema, 4, 1}}]}
+               {:error, [{[], {:newer_schema, 4, 2}}]}
     end
 
     @tag verifies: "themes-document-forms"
@@ -165,14 +171,14 @@ defmodule Macaw.Layers.Theme.DocumentTest do
 
     @tag verifies: "themes-document-value"
     test "the limits are the JSON form's, and a value is judged with none" do
-      node = %{series: List.duplicate("#3b6fa8", 6)}
+      node = %{series: List.duplicate(~RGB"#3b6fa8", 6)}
 
       # A value is no encoding: nothing reads it, so no limit bounds it (spec/01 §5).
       assert {:ok, %Theme{series: series}} = Document.from_map(%{theme: node})
       assert series == node.series
 
       # The limits gate walks the JSON form, before any key is read.
-      json = JSON.encode!(%{"$version" => 1, "theme" => %{"series" => node.series}})
+      json = JSON.encode!(%{"theme" => %{"series" => List.duplicate(%{"$rgb" => "#3b6fa8"}, 6)}})
 
       assert {:error, [{path, {:limit, :items, 5, 6}}]} =
                Document.from_json(json, limits: [items: 5])
@@ -185,7 +191,9 @@ defmodule Macaw.Layers.Theme.DocumentTest do
     @tag verifies: "themes-document-forms"
     test "a ramp that breaks its contract is the contract fault at its path" do
       assert {:error, [{[:theme, :ramps, :status], {:contract, message}}]} =
-               Document.from_map(%{theme: %{ramps: %{status: ~w(#c23238 #bd7407 #4ca34b)}}})
+               Document.from_map(%{
+                 theme: %{ramps: %{status: [~RGB"#c23238", ~RGB"#bd7407", ~RGB"#4ca34b"]}}
+               })
 
       assert message =~ "good (0) must be green or blue"
     end
@@ -199,7 +207,7 @@ defmodule Macaw.Layers.Theme.DocumentTest do
     @tag verifies: "themes-document-forms"
     test "an unknown key, a key beside the theme, and a map that is no theme are refused" do
       assert {:error, [{[:theme, :ink], :unknown_key}]} =
-               Document.from_map(%{theme: %{ink: "#000000"}})
+               Document.from_map(%{theme: %{ink: ~RGB"#000000"}})
 
       # The envelope's own faults (spec/01 §3): a key it does not know at its own spelling, a
       # missing theme required, and a value that is not a map document.
@@ -209,7 +217,7 @@ defmodule Macaw.Layers.Theme.DocumentTest do
       assert Document.from_json(~s({"theme": {}, "stles": {}})) ==
                {:error, [{["stles"], :unknown_key}]}
 
-      assert Document.from_map(%{axis: "#000000"}) ==
+      assert Document.from_map(%{axis: ~RGB"#000000"}) ==
                {:error, [{[:axis], :unknown_key}, {[:theme], :required}]}
 
       assert Document.from_map(@house) == {:error, [{[], {:type, :map}}]}

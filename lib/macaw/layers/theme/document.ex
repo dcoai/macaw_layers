@@ -12,9 +12,10 @@ defmodule Macaw.Layers.Theme.Document do
     * the value is `%{version: v, theme: node}` (`to_map/1`), and a store's fragment
       `%{theme: node}` (`fragment/1`), a library entry of kind `:theme`, reads as the same
       document;
-    * the JSON form is `{"$version": v, "theme": {…}}` (`to_json/1`), each color value a tag
-      (`$color`, `$series`, `$ramp`, the transforms by name, `$blend`, `$contrast`) and
-      pinned steps `$steps`, written and read by the JSON adapter (`Macaw.Layers.Form`), and
+    * the JSON form is `{"$version": v, "theme": {…}}` (`to_json/1`), each color a tag (a
+      literal `$rgb`, `$color`, `$series`, `$ramp`, the transforms by name, `$blend`,
+      `$contrast`) and pinned steps `$steps`, written and read by the JSON adapter
+      (`Macaw.Layers.Form`, `Macaw.Layers.Color.Form`), and
       every name in `ramps`, `colors`, `styles` and `defaults` a string, the library's own
       read back as its atom.
 
@@ -26,11 +27,16 @@ defmodule Macaw.Layers.Theme.Document do
   the theme does not have is `:unknown_key`; and every contract a ramp, color or palette
   entry breaks is `{:contract, message}` at `[:theme, :ramps | :colors | :styles, name]`.
 
+  The line is at version 2: a literal color is a term, tagged `$rgb` in the JSON form.
+  Version 1 wrote it as CSS text; its step tags each string at a color position that
+  `Macaw.Layers.Color.parse/1` reads, so a version 1 document, or a bundle's entry of one,
+  reads to the same theme.
+
   As a fragment type (spec/02 §1), `ramps`, `colors`, `styles` and `defaults` are `:union`
   name maps and every other key `:override`, so a theme document stacks over a built-in as
   `Macaw.Layers.Theme.new/1` merges.
 
-      iex> theme = Macaw.Layers.Theme.new(name: :house, axis: "#555555")
+      iex> theme = Macaw.Layers.Theme.new(name: :house, axis: Macaw.Layers.Color.parse!("#555555"))
       iex> Macaw.Layers.Theme.Document.from_map(Macaw.Layers.Theme.Document.to_map(theme))
       {:ok, theme}
       iex> Macaw.Layers.Theme.Document.from_map(%{theme: :dark})
@@ -46,7 +52,7 @@ defmodule Macaw.Layers.Theme.Document do
 
   import Kernel, except: [node: 1]
 
-  alias Macaw.Layers.{Document, Fault, Form, Fragment, Theme, Var, Version, Vocabulary}
+  alias Macaw.Layers.{Color, Document, Fault, Form, Fragment, Theme, Var, Version, Vocabulary}
   alias Macaw.Layers.Color.Form, as: ColorForm
   alias Macaw.Layers.Theme.{Palette, Words}
 
@@ -251,15 +257,18 @@ defmodule Macaw.Layers.Theme.Document do
   defp field(:series, series) when is_list(series) and length(series) > @style_series,
     do: [{[:theme, :series], {:limit, :series, @style_series, length(series)}}]
 
+  # The series and the furniture are literal colors, terms: a string is never one.
   defp field(:series, [_ | _] = series) do
     for {c, i} <- Enum.with_index(series),
-        not is_binary(c),
-        do: {[:theme, :series, i], {:type, :string}}
+        not Color.literal?(c),
+        do: {[:theme, :series, i], {:type, :color}}
   end
 
   defp field(:series, _other), do: [{[:theme, :series], {:type, :colors}}]
-  defp field(key, value) when key in @furniture and is_binary(value), do: []
-  defp field(key, _value) when key in @furniture, do: [{[:theme, key], {:type, :string}}]
+
+  defp field(key, value) when key in @furniture,
+    do: if(Color.literal?(value), do: [], else: [{[:theme, key], {:type, :color}}])
+
   defp field(:font_family, value) when is_binary(value), do: []
   defp field(:font_family, _value), do: [{[:theme, :font_family], {:type, :string}}]
 
@@ -284,11 +293,87 @@ defmodule Macaw.Layers.Theme.Document do
   # -- the behaviors -----------------------------------------------------------------------
 
   @impl Version
-  def current, do: 1
+  def current, do: 2
 
-  # The line is at its first version, so no step exists yet.
+  # 1 -> 2: a literal color is a term, tagged `$rgb` (spec/04 §1.6, §5); version 1 wrote it
+  # as CSS text. Each string at a color position that `Color.parse/1` reads is tagged; any
+  # other string is left as it is, for the reader to refuse at its path. A node that is a
+  # name holds no color.
   @impl Version
-  def step(document, _from), do: {:ok, document}
+  def step(%{"theme" => node} = document, 1) when is_map(node),
+    do: {:ok, %{document | "theme" => tag_colors(node)}}
+
+  def step(document, 1), do: {:ok, document}
+
+  @furniture_keys Enum.map(@furniture, &Atom.to_string/1)
+  @op_keys Enum.map(Macaw.Layers.Color.Typed.ops(), &"$#{&1}")
+
+  # The color positions of a node's map form: the series, the furniture, the ramps'
+  # anchors, the colors' entries and the styles' paint colors.
+  defp tag_colors(node) do
+    Map.new(node, fn
+      {"series", series} when is_list(series) -> {"series", Enum.map(series, &tag/1)}
+      {key, value} when key in @furniture_keys -> {key, tag(value)}
+      {"ramps", ramps} when is_map(ramps) -> {"ramps", Map.new(ramps, &tag_anchors/1)}
+      {"colors", colors} when is_map(colors) -> {"colors", Map.new(colors, &tag_entry/1)}
+      {"styles", styles} when is_map(styles) -> {"styles", Map.new(styles, &tag_style/1)}
+      other -> other
+    end)
+  end
+
+  defp tag_anchors({name, anchors}) when is_list(anchors), do: {name, Enum.map(anchors, &tag/1)}
+  defp tag_anchors(other), do: other
+
+  defp tag_entry({name, value}), do: {name, tag(value)}
+
+  defp tag_style({name, entry}), do: {name, paints(entry)}
+
+  # A style entry's node, or each node of a list; a name in a list is no color.
+  defp paints(entries) when is_list(entries), do: Enum.map(entries, &paints/1)
+
+  defp paints(node) when is_map(node) do
+    Map.new(node, fn
+      {part, %{"color" => c} = paint} when part in ["fill", "stroke"] ->
+        {part, %{paint | "color" => tag(c)}}
+
+      other ->
+        other
+    end)
+  end
+
+  defp paints(other), do: other
+
+  # A color's version 1 form at version 2: text a literal's `$rgb`, and a tag's operands
+  # and pinned steps each tagged in turn.
+  defp tag(text) when is_binary(text) do
+    case Color.parse(text) do
+      %Color{} = literal ->
+        {:ok, form} = ColorForm.encode_value(literal)
+        form
+
+      nil ->
+        text
+    end
+  end
+
+  defp tag(%{"$steps" => pairs}) when is_list(pairs),
+    do: %{"$steps" => Enum.map(pairs, &tag_step/1)}
+
+  defp tag(%{"$blend" => list}) when is_list(list), do: %{"$blend" => Enum.map(list, &tag/1)}
+  defp tag(%{"$contrast" => "under"} = under), do: under
+  defp tag(%{"$contrast" => c}), do: %{"$contrast" => tag(c)}
+
+  defp tag(%{} = form) when map_size(form) == 1 do
+    case Map.to_list(form) do
+      [{op, [c, t]}] when op in @op_keys -> %{op => [tag(c), t]}
+      _other -> form
+    end
+  end
+
+  defp tag(other), do: other
+
+  defp tag_step([n, c]), do: [n, tag(c)]
+  defp tag_step(other), do: other
 
   @doc false
   # The envelope, as a value: a theme, as a node or a name, and nothing else. The node is

@@ -414,8 +414,10 @@ defmodule Macaw.Layers.Color do
   On a `%Macaw.Layers.Color{}`, a saturated copy: HSL saturation multiplied by `amount`
   (default `1.2`).
 
-  On a color value (spec/04 §1.3), the transform `{:saturate, c, t}`: chroma moved toward
-  full in OKLCH by `t` in `0..1`, resolved against the theme.
+  On any other color value (spec/04 §1.3), the transform `{:saturate, c, t}`: chroma moved
+  toward full in OKLCH by `t` in `0..1`, resolved against the theme. A literal keeps the
+  first meaning, so the transform of a literal is written as its tuple,
+  `{:saturate, literal, t}`.
 
       iex> Macaw.Layers.Color.color(:red) |> Macaw.Layers.Color.saturate(0.2)
       {:saturate, {:color, :red}, 0.2}
@@ -616,11 +618,12 @@ defmodule Macaw.Layers.Color do
 
   @typedoc """
   A color as a design names it (spec/04 §1.3): a name of the theme's color table, a series
-  or a ramp position, a literal string, or a transform of colors.
+  or a ramp position, a literal color (`t:t/0`), or a transform of colors. A string is never
+  a color.
   """
   @type value ::
-          String.t()
-          | {:color, atom()}
+          t()
+          | {:color, atom() | String.t()}
           | {:series, pos_integer()}
           | {:ramp, atom(), number()}
           | {:intensity | :alpha | :lighten | :darken | :saturate | :shade, value(), number()}
@@ -774,12 +777,15 @@ defmodule Macaw.Layers.Color do
   end
 
   @doc """
-  Whether a term is a color value (spec/04 §1.3), every operand of a transform included.
+  Whether a term is a color value (spec/04 §1.3), every operand of a transform included. A
+  literal is the canonical `%Macaw.Layers.Color{}` (`literal?/1`); a string is never a color.
 
       iex> Macaw.Layers.Color.value?({:alpha, {:color, :red}, 0.5})
       true
-      iex> Macaw.Layers.Color.value?(:red)
-      false
+      iex> Macaw.Layers.Color.value?({:alpha, Macaw.Layers.Color.parse!("#3b6fa8"), 0.5})
+      true
+      iex> Enum.map([:red, "#3b6fa8", {:alpha, "#3b6fa8", 0.5}], &Macaw.Layers.Color.value?/1)
+      [false, false, false]
 
   """
   @spec value?(term()) :: boolean()
@@ -788,16 +794,21 @@ defmodule Macaw.Layers.Color do
   @doc """
   A color value resolved against a theme in `mode` (spec/04 §1.4, §3.2): a name, a series
   or a ramp position exactly as `Macaw.Layers.Theme.resolve/3` resolves the slot, a literal as
-  written, and a transform as the literal it computes to, `#rrggbb` or `#rrggbbaa`.
+  itself, and a transform as the literal it computes to, quantized to 8 bits. `:literal`
+  answers a literal color, `:css` CSS text (`to_css/1` for a literal).
 
       iex> theme = Macaw.Layers.Theme.default()
       iex> Macaw.Layers.Color.resolve(Macaw.Layers.Color.color(:axis), theme, :css)
       "var(--mw-axis, #666666)"
-      iex> Macaw.Layers.Color.resolve({:intensity, "#ff0000", 0.5}, theme, :literal)
+      iex> red = Macaw.Layers.Color.parse!("#ff0000")
+      iex> Macaw.Layers.Color.resolve({:intensity, red, 0.5}, theme, :literal)
+      %Macaw.Layers.Color{r: 255.0, g: 0.0, b: 0.0, opacity: 128 / 255}
+      iex> Macaw.Layers.Color.resolve({:intensity, red, 0.5}, theme, :literal) |> Macaw.Layers.Color.to_css()
       "#ff000080"
 
   """
-  @spec resolve(value() | atom(), Macaw.Layers.Theme.t(), Macaw.Layers.Theme.mode()) :: String.t()
+  @spec resolve(value() | atom(), Macaw.Layers.Theme.t(), Macaw.Layers.Theme.mode()) ::
+          t() | String.t()
   def resolve(value, theme, mode), do: Typed.resolve(value, theme, mode)
 
   defp transform(op, c, t) do
@@ -812,9 +823,11 @@ defmodule Macaw.Layers.Color do
     "#{op}: a bare atom is a style, not a color; write color(#{inspect(c)})"
   end
 
+  defp operand(op, c) when is_binary(c), do: "#{op}: #{Typed.text_hint(c)}"
+
   defp operand(op, c) do
     "#{op}: not a color value: #{inspect(c)}; a color is color(name), ramp(name, t), a " <>
-      "literal string or a transform of them"
+      "literal %Macaw.Layers.Color{} or a transform of them"
   end
 
   defp unit(t), do: "a number in 0..1, got: #{inspect(t)}"

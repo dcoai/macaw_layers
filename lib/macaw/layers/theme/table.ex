@@ -2,15 +2,18 @@ defmodule Macaw.Layers.Theme.Table do
   @moduledoc false
   # A theme's color table (spec/04 §2.2): a name's entry looked up in the theme's own
   # `colors`, then the default theme's, then the extensions', then the CSS named colors, each
-  # by either spelling of the name; a name's literal through any chain of names; a ramp's
-  # anchors as literals; and each own entry held to what an entry may be.
+  # by either spelling of the name; a name's literal color through any chain of names; a
+  # ramp's anchors as literals; and each own entry held to what an entry may be. A literal is
+  # the term `%Macaw.Layers.Color{}`; a string is never a color (spec/04 §1.1).
   #
   # Ported from the color-table half of visualize's `Visualize.Theme`.
 
   alias Macaw.Layers.{Color, Theme}
+  alias Macaw.Layers.Color.Typed
   alias Macaw.Layers.Theme.{Contract, Extension}
 
-  @css_set Map.new(Color.named_colors(), &{&1, true})
+  # The CSS named colors as literals, read once when this compiles.
+  @css_colors Map.new(Color.named_colors(), &{&1, Color.parse!(&1)})
 
   @doc false
   @spec own_colors(Theme.t()) :: map()
@@ -34,8 +37,7 @@ defmodule Macaw.Layers.Theme.Table do
   end
 
   defp css(name) do
-    spelling = to_string(name)
-    if Map.has_key?(@css_set, spelling), do: Color.named(spelling)
+    Map.get(@css_colors, to_string(name))
   end
 
   # An entry by either spelling of its name: a document names a theme's colors by string,
@@ -56,7 +58,7 @@ defmodule Macaw.Layers.Theme.Table do
   @doc false
   # A name's literal. A chain of names that reaches itself raises; `Theme.violations/1`
   # reports it first.
-  @spec literal(Theme.t(), atom() | String.t()) :: String.t()
+  @spec literal(Theme.t(), atom() | String.t()) :: Color.t()
   def literal(theme, name), do: literal(theme, name, [])
 
   defp literal(theme, name, seen) do
@@ -64,27 +66,27 @@ defmodule Macaw.Layers.Theme.Table do
       do: raise(ArgumentError, "color #{inspect(name)} reaches itself through the color table")
 
     case lookup(theme, name) do
-      literal when is_binary(literal) -> literal
+      %Color{} = literal -> literal
       {:ramp, ramp, t} -> Theme.ramp(theme, ramp, t)
       {:color, other} -> literal(theme, other, [name | seen])
-      %{500 => base} when is_binary(base) -> base
+      %{500 => %Color{} = base} -> base
       value -> Color.resolve(value, theme, :literal)
     end
   end
 
   @doc false
   # The literal a theme pins at step `n` of a name, `nil` when it pins none there.
-  @spec step(Theme.t(), atom() | String.t(), number()) :: String.t() | nil
+  @spec step(Theme.t(), atom() | String.t(), number()) :: Color.t() | nil
   def step(theme, name, n) do
     case lookup(theme, name) do
-      %{^n => literal} when is_binary(literal) -> literal
+      %{^n => %Color{} = literal} -> literal
       _unpinned -> nil
     end
   end
 
   @doc false
   # A ramp's anchors as literals, the default theme's where the theme lacks the ramp.
-  @spec anchors(Theme.t(), atom()) :: [String.t() | term()]
+  @spec anchors(Theme.t(), atom()) :: [Color.t() | term()]
   def anchors(theme, name) do
     if name not in Contract.ramps(),
       do:
@@ -103,22 +105,23 @@ defmodule Macaw.Layers.Theme.Table do
   end
 
   @doc false
-  # An anchor as the color string it is: a string as written, a name the string it holds
+  # An anchor as the literal color it is: a literal as itself, a name the literal it holds
   # through any chain of names, a transform the literal it computes; `nil` for one that
   # reaches none. An anchor never reads a ramp, so it cannot loop.
-  @spec anchor_literal(Theme.t(), term()) :: String.t() | nil
+  @spec anchor_literal(Theme.t(), term()) :: Color.t() | nil
   def anchor_literal(theme, anchor), do: anchor_literal(theme, anchor, [])
 
-  defp anchor_literal(_theme, literal, _seen) when is_binary(literal), do: literal
+  defp anchor_literal(_theme, %Color{} = literal, _seen),
+    do: if(Color.literal?(literal), do: literal)
 
   defp anchor_literal(theme, {:color, name}, seen) do
     if name in seen do
       nil
     else
       case lookup(theme, name) do
-        literal when is_binary(literal) -> literal
+        %Color{} = literal -> anchor_literal(theme, literal, seen)
         {:color, _} = next -> anchor_literal(theme, next, [name | seen])
-        %{500 => base} when is_binary(base) -> base
+        %{500 => %Color{} = base} -> anchor_literal(theme, base, seen)
         _other -> nil
       end
     end
@@ -135,7 +138,7 @@ defmodule Macaw.Layers.Theme.Table do
 
   defp anchor_literal(_theme, _anchor, _seen), do: nil
 
-  defp literal_names(_theme, literal, _seen) when is_binary(literal), do: literal
+  defp literal_names(_theme, %Color{} = literal, _seen), do: literal
   defp literal_names(theme, {:color, _} = name, seen), do: anchor_literal(theme, name, seen)
   defp literal_names(_theme, {:contrast, :under}, _seen), do: nil
 
@@ -155,9 +158,9 @@ defmodule Macaw.Layers.Theme.Table do
   defp literal_names(_theme, _other, _seen), do: nil
 
   @doc false
-  # An entry of the theme's own `colors` held to what an entry may be: a color string, a
+  # An entry of the theme's own `colors` held to what an entry may be: a literal color, a
   # color value whose names are the table's and do not reach the entry again, or pinned
-  # steps.
+  # steps. Text is refused naming the edges that read it.
   @spec entry(Theme.t(), atom() | String.t()) :: :ok | {:error, String.t()}
   def entry(theme, name) do
     value = Map.fetch!(own_colors(theme), name)
@@ -167,7 +170,7 @@ defmodule Macaw.Layers.Theme.Table do
         {:error, "a color name is lower-case letters, digits and _, starting with a letter"}
 
       is_binary(value) ->
-        if Color.parse(value), do: :ok, else: {:error, "#{inspect(value)} is not a color"}
+        {:error, Typed.text_hint(value)}
 
       Color.value?(value) ->
         names_resolve(theme, value, [name])
@@ -177,7 +180,7 @@ defmodule Macaw.Layers.Theme.Table do
 
       true ->
         {:error,
-         "#{inspect(value)} is not a color: a color string, a color value or pinned steps"}
+         "#{inspect(value)} is not a color: a literal color, a color value or pinned steps"}
     end
   end
 
@@ -190,13 +193,16 @@ defmodule Macaw.Layers.Theme.Table do
       bad = Enum.find(Map.keys(steps), &(not (is_integer(&1) and &1 >= 0 and &1 <= 1000))) ->
         {:error, "a pinned step is an integer in 0..1000, got #{inspect(bad)}"}
 
-      bad = Enum.find(Map.values(steps), &(not (is_binary(&1) and Color.parse(&1) != nil))) ->
-        {:error, "a pinned step is a color string, got #{inspect(bad)}"}
+      bad = Enum.find(Map.values(steps), &(not Color.literal?(&1))) ->
+        {:error, "a pinned step is a literal color#{step_words(bad)}"}
 
       true ->
         :ok
     end
   end
+
+  defp step_words(text) when is_binary(text), do: ": " <> Typed.text_hint(text)
+  defp step_words(other), do: ", got " <> inspect(other)
 
   @doc false
   # Whether every name in a color value is the table's, without a loop back to `seen`.
@@ -282,10 +288,12 @@ defmodule Macaw.Layers.Theme.Table do
   def word?(spelling) when is_binary(spelling), do: Color.name?(spelling)
 
   @doc false
-  # A value as CSS writes it: a size in px, and a string with the characters that would end
-  # its declaration, its rule or a `<style>` around the sheet written as CSS escapes.
+  # A value as CSS writes it: a size in px, a literal color its CSS text (spec/04 §1.6), and
+  # a string with the characters that would end its declaration, its rule or a `<style>`
+  # around the sheet written as CSS escapes.
   @spec css_value(atom(), term()) :: String.t()
   def css_value(:size, n), do: "#{n}px"
+  def css_value(:color, %Color{} = literal), do: Color.to_css(literal)
   def css_value(_kind, value) when is_binary(value), do: css_escape(value)
   def css_value(_kind, value), do: to_string(value)
 

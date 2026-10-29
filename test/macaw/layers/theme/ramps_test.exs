@@ -6,22 +6,25 @@ defmodule Macaw.Layers.Theme.RampsTest do
   """
   use ExUnit.Case, async: true
 
+  import Macaw.Layers.Color, only: [sigil_RGB: 2]
+
   alias Macaw.Layers.{Color, Theme}
 
   @themes [Theme.default(), Theme.dark(), Theme.color_safe()]
 
   # The D3-compatible sequential schemes visualize's color scales carry, as data.
   @schemes %{
-    blues: ~w(#f7fbff #deebf7 #c6dbef #9ecae1 #6baed6 #4292c6 #2171b5 #084594),
-    greens: ~w(#f7fcf5 #e5f5e0 #c7e9c0 #a1d99b #74c476 #41ab5d #238b45 #005a32),
-    grays: ~w(#ffffff #f0f0f0 #d9d9d9 #bdbdbd #969696 #737373 #525252 #252525),
-    oranges: ~w(#fff5eb #fee6ce #fdd0a2 #fdae6b #fd8d3c #f16913 #d94801 #8c2d04),
-    purples: ~w(#fcfbfd #efedf5 #dadaeb #bcbddc #9e9ac8 #807dba #6a51a3 #4a1486),
-    reds: ~w(#fff5f0 #fee0d2 #fcbba1 #fc9272 #fb6a4a #ef3b2c #cb181d #99000d),
-    viridis: ~w(#440154 #482777 #3f4a8a #31678e #26838f #1f9d8a #6cce5a #b6de2b #fee825)
-  }
+             blues: ~w(#f7fbff #deebf7 #c6dbef #9ecae1 #6baed6 #4292c6 #2171b5 #084594),
+             greens: ~w(#f7fcf5 #e5f5e0 #c7e9c0 #a1d99b #74c476 #41ab5d #238b45 #005a32),
+             grays: ~w(#ffffff #f0f0f0 #d9d9d9 #bdbdbd #969696 #737373 #525252 #252525),
+             oranges: ~w(#fff5eb #fee6ce #fdd0a2 #fdae6b #fd8d3c #f16913 #d94801 #8c2d04),
+             purples: ~w(#fcfbfd #efedf5 #dadaeb #bcbddc #9e9ac8 #807dba #6a51a3 #4a1486),
+             reds: ~w(#fff5f0 #fee0d2 #fcbba1 #fc9272 #fb6a4a #ef3b2c #cb181d #99000d),
+             viridis: ~w(#440154 #482777 #3f4a8a #31678e #26838f #1f9d8a #6cce5a #b6de2b #fee825)
+           }
+           |> Map.new(fn {name, hexes} -> {name, Enum.map(hexes, &Color.parse!/1)} end)
 
-  defp lch(hex), do: hex |> Color.parse() |> Color.to_hcl()
+  defp lch(%Color{} = color), do: Color.to_hcl(color)
 
   describe "the shipped themes" do
     @tag verifies: "themes-ramps-contracts"
@@ -53,8 +56,8 @@ defmodule Macaw.Layers.Theme.RampsTest do
     @tag verifies: "themes-ramps-contracts"
     test "the status roles hold 3:1 on the light themes' white" do
       for theme <- [Theme.default(), Theme.color_safe()], role <- [:good, :warning, :bad] do
-        color = Color.parse(Theme.resolve(theme, role, :literal))
-        assert Color.contrast(color, Color.parse(theme.background)) >= 3, "#{theme.name} #{role}"
+        color = Theme.resolve(theme, role, :literal)
+        assert Color.contrast(color, theme.background) >= 3, "#{theme.name} #{role}"
       end
     end
 
@@ -87,7 +90,7 @@ defmodule Macaw.Layers.Theme.RampsTest do
     test "reordered status hues" do
       error =
         assert_raise ArgumentError, fn ->
-          Theme.new(name: :house, ramps: %{status: ~w(#c23238 #bd7407 #4ca34b)})
+          Theme.new(name: :house, ramps: %{status: [~RGB"#c23238", ~RGB"#bd7407", ~RGB"#4ca34b"]})
         end
 
       assert error.message =~ "theme \"house\": ramp :status breaks its contract"
@@ -98,7 +101,7 @@ defmodule Macaw.Layers.Theme.RampsTest do
     test "status lightness that is not monotonic" do
       error =
         assert_raise ArgumentError, fn ->
-          Theme.new(ramps: %{status: ~w(#4ca34b #e0a030 #c23238)})
+          Theme.new(ramps: %{status: [~RGB"#4ca34b", ~RGB"#e0a030", ~RGB"#c23238"]})
         end
 
       assert error.message =~ "ramp :status"
@@ -109,7 +112,10 @@ defmodule Macaw.Layers.Theme.RampsTest do
     @tag verifies: "themes-ramps-contracts"
     test "sequential lightness that steps by less than the tolerance" do
       assert {:error, {:ramp, :sequential}, message} =
-               Theme.check(%{Theme.default() | ramps: %{sequential: ~w(#5e95d3 #5a92d0 #004580)}})
+               Theme.check(%{
+                 Theme.default()
+                 | ramps: %{sequential: [~RGB"#5e95d3", ~RGB"#5a92d0", ~RGB"#004580"]}
+               })
 
       assert message =~ "only"
     end
@@ -118,7 +124,7 @@ defmodule Macaw.Layers.Theme.RampsTest do
     test "a status whose hue turns back between its anchors" do
       # Green, then a blue, then amber and red: the ends and the middle are right and the
       # lightness falls, but the hue climbs from green to blue before it falls.
-      ramp = ~w(#68be64 #65a0e2 #bd7407 #ca4c23 #c23238)
+      ramp = [~RGB"#68be64", ~RGB"#65a0e2", ~RGB"#bd7407", ~RGB"#ca4c23", ~RGB"#c23238"]
 
       assert {:error, {:ramp, :status}, message} =
                Theme.check(%{Theme.default() | ramps: %{status: ramp}})
@@ -129,12 +135,18 @@ defmodule Macaw.Layers.Theme.RampsTest do
     @tag verifies: "themes-ramps-contracts"
     test "a thermal ramp with no neutral midpoint, and a diverging one of one hue" do
       assert {:error, {:ramp, :thermal}, message} =
-               Theme.check(%{Theme.default() | ramps: %{thermal: ~w(#0e68ad #5e95d3 #c02e31)}})
+               Theme.check(%{
+                 Theme.default()
+                 | ramps: %{thermal: [~RGB"#0e68ad", ~RGB"#5e95d3", ~RGB"#c02e31"]}
+               })
 
       assert message =~ "midpoint (0.5) must be neutral"
 
       assert {:error, {:ramp, :diverging}, message} =
-               Theme.check(%{Theme.default() | ramps: %{diverging: ~w(#b35806 #ededed #c02e31)}})
+               Theme.check(%{
+                 Theme.default()
+                 | ramps: %{diverging: [~RGB"#b35806", ~RGB"#ededed", ~RGB"#c02e31"]}
+               })
 
       assert message =~ "at least 60° apart"
     end
@@ -157,20 +169,20 @@ defmodule Macaw.Layers.Theme.RampsTest do
     @tag verifies: "themes-ramps-contracts"
     test "roles: info is a blue, neutral is neutral" do
       assert {:error, {:color, :neutral}, _} =
-               Theme.check(Theme.build(Theme.default(), colors: %{neutral: "#3b6fa8"}))
+               Theme.check(Theme.build(Theme.default(), colors: %{neutral: ~RGB"#3b6fa8"}))
 
       assert {:error, {:color, :info}, _} =
-               Theme.check(Theme.build(Theme.default(), roles: %{info: "#c23238"}))
+               Theme.check(Theme.build(Theme.default(), roles: %{info: ~RGB"#c23238"}))
     end
 
     @tag verifies: "themes-ramps-contracts"
     test "what is not a ramp, a role or a color" do
       assert_raise ArgumentError, ~r/ramp :heat breaks its contract: is not a ramp/, fn ->
-        Theme.new(ramps: %{heat: ~w(#fff #000)})
+        Theme.new(ramps: %{heat: [~RGB"#fff", ~RGB"#000"]})
       end
 
       assert_raise ArgumentError,
-                   ~r/color :good breaks its contract: "nope" is not a color/,
+                   ~r/color :good breaks its contract: "nope" is text, and a string is never a color/,
                    fn ->
                      Theme.new(colors: %{good: "nope"})
                    end
@@ -184,18 +196,24 @@ defmodule Macaw.Layers.Theme.RampsTest do
       end
 
       assert_raise ArgumentError, ~r/needs at least two anchors/, fn ->
-        Theme.new(ramps: %{sequential: ["#004580"]})
+        Theme.new(ramps: %{sequential: [~RGB"#004580"]})
       end
 
-      assert_raise ArgumentError, ~r/anchor 2 "nope" is not a color/, fn ->
-        Theme.new(ramps: %{sequential: ["#e9f2fc", "nope"]})
+      assert_raise ArgumentError,
+                   ~r/anchor 2 "nope" is text, and a string is never a color/,
+                   fn ->
+                     Theme.new(ramps: %{sequential: [~RGB"#e9f2fc", "nope"]})
+                   end
+
+      assert_raise ArgumentError, ~r/anchor 1 :nope is not a color/, fn ->
+        Theme.new(ramps: %{sequential: [:nope, ~RGB"#004580"]})
       end
     end
 
     @tag verifies: "themes-ramps-contracts"
     test "a background alone never breaks a contract: lightness may run either way" do
-      assert Theme.new(background: "#000000").ramps == Theme.default().ramps
-      assert Theme.new(background: "transparent").name == :default
+      assert Theme.new(background: ~RGB"#000000").ramps == Theme.default().ramps
+      assert Theme.new(background: Color.rgb(0, 0, 0, 0)).name == :default
     end
   end
 
@@ -214,7 +232,7 @@ defmodule Macaw.Layers.Theme.RampsTest do
     test "a role is a slot: a CSS reference with its literal" do
       theme = Theme.default()
       assert Theme.resolve(theme, :bad, :css) == "var(--mw-bad, #c23238)"
-      assert Theme.resolve(theme, :neutral, :literal) == "#6f7480"
+      assert Theme.resolve(theme, :neutral, :literal) === ~RGB"#6f7480"
     end
 
     @tag verifies: "themes-ramps-contracts"
@@ -222,14 +240,13 @@ defmodule Macaw.Layers.Theme.RampsTest do
       theme = Theme.default()
       quarter = Theme.ramp(theme, :thermal, 0.25)
 
-      expected =
-        Color.interpolate_lab(Color.parse("#0e68ad"), Color.parse("#e8e8e8"), 0.5)
-        |> Color.to_hex()
+      expected = Color.interpolate_lab(~RGB"#0e68ad", ~RGB"#e8e8e8", 0.5)
 
-      assert quarter == expected
-      assert Theme.resolve(theme, {:ramp, :thermal, 0.25}, :css) == quarter
-      assert Theme.ramp(theme, :thermal, -1) == "#0e68ad"
-      assert Theme.ramp(theme, :thermal, 2) == "#c02e31"
+      assert quarter === expected
+      assert Theme.resolve(theme, {:ramp, :thermal, 0.25}, :literal) === quarter
+      assert Theme.resolve(theme, {:ramp, :thermal, 0.25}, :css) == Color.to_css(quarter)
+      assert Theme.ramp(theme, :thermal, -1) === ~RGB"#0e68ad"
+      assert Theme.ramp(theme, :thermal, 2) === ~RGB"#c02e31"
     end
 
     @tag verifies: "themes-ramps-contracts"
@@ -266,12 +283,12 @@ defmodule Macaw.Layers.Theme.RampsTest do
 
     @tag verifies: "themes-builtins-values"
     test "new/1 and merge/2 merge ramps and roles key by key" do
-      theme = Theme.new(ramps: %{sequential: ~w(#fff5eb #fd8d3c #8c2d04)})
+      theme = Theme.new(ramps: %{sequential: [~RGB"#fff5eb", ~RGB"#fd8d3c", ~RGB"#8c2d04"]})
       assert theme.ramps.status == Theme.default().ramps.status
-      assert theme.ramps.sequential == ~w(#fff5eb #fd8d3c #8c2d04)
+      assert theme.ramps.sequential == [~RGB"#fff5eb", ~RGB"#fd8d3c", ~RGB"#8c2d04"]
 
-      night = Theme.merge(Theme.dark(), roles: %{info: "#5e95d3"})
-      assert night.colors == %{Theme.dark().colors | info: "#5e95d3"}
+      night = Theme.merge(Theme.dark(), roles: %{info: ~RGB"#5e95d3"})
+      assert night.colors == %{Theme.dark().colors | info: ~RGB"#5e95d3"}
       assert night.ramps == Theme.dark().ramps
     end
   end

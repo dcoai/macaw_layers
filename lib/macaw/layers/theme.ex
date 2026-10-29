@@ -11,9 +11,13 @@ defmodule Macaw.Layers.Theme do
   is the theme's red. Everything reads a theme through `resolve/3`, in the mode its output
   needs:
 
-    * `:literal` - the stored value, which a canvas needs;
+    * `:literal` - the stored value, which a canvas needs: a color a literal
+      `%Macaw.Layers.Color{}`;
     * `:css` - a custom-property reference with the literal as its fallback,
       `var(--mw-axis, #666666)`, so a stylesheet can override it from any ancestor.
+
+  Its colors are terms (§2.1): a literal is `%Macaw.Layers.Color{}`, read from text at the
+  edge (`Macaw.Layers.Color.parse!/1`, `~RGB"#3b6fa8"`), and a string is never a color.
 
   ## Meaning: ramps, roles and cues
 
@@ -34,70 +38,80 @@ defmodule Macaw.Layers.Theme do
       iex> Macaw.Layers.Theme.resolve(Macaw.Layers.Theme.default(), :axis, :css)
       "var(--mw-axis, #666666)"
       iex> Macaw.Layers.Theme.resolve(Macaw.Layers.Theme.dark(), {:series, 11}, :literal)
-      "#7fb3e6"
-      iex> Macaw.Layers.Theme.resolve(Macaw.Layers.Theme.default(), :warning, :literal)
-      "#bd7407"
+      %Macaw.Layers.Color{r: 127.0, g: 179.0, b: 230.0, opacity: 1.0}
+      iex> Macaw.Layers.Theme.resolve(Macaw.Layers.Theme.default(), :warning, :css)
+      "var(--mw-warning, #bd7407)"
       iex> Macaw.Layers.Theme.resolve(Macaw.Layers.Theme.default(), {:ramp, :status, 0.5}, :css)
       "var(--mw-warning, #bd7407)"
 
   Ported from visualize's `Visualize.Theme`.
   """
 
+  import Macaw.Layers.Color, only: [sigil_RGB: 2]
+
   alias Macaw.Layers.Color
+  alias Macaw.Layers.Color.Typed
   alias Macaw.Layers.Theme.{Contract, Contrast, Extension, Names, Palette, Roles, Slots, Table}
 
-  @light_series ~w(#3b6fa8 #d9730d #c8373b #2f8f86 #3f8a37 #a8891a #8f5f99 #c9527f #8a6a4f #6f7480)
-  @dark_series ~w(#7fb3e6 #f7a35c #f47c7c #6fd3c8 #86d67c #f2d15b #c99bd6 #ffb3c1 #cfa98b #b7bcc6)
+  # Every color of the built-ins a literal term, read from its text when this compiles.
+  @light_series Enum.map(
+                  ~w(#3b6fa8 #d9730d #c8373b #2f8f86 #3f8a37 #a8891a #8f5f99 #c9527f #8a6a4f #6f7480),
+                  &Color.parse!/1
+                )
+  @dark_series Enum.map(
+                 ~w(#7fb3e6 #f7a35c #f47c7c #6fd3c8 #86d67c #f2d15b #c99bd6 #ffb3c1 #cfa98b #b7bcc6),
+                 &Color.parse!/1
+               )
 
   # The ramps of §2.5, chosen in CIE LCh to hold the contracts of §2.3 with room.
   @light_ramps %{
     # The status ramp is defined from the theme's green, amber and red.
     status: [{:color, :green}, {:color, :amber}, {:color, :red}],
-    thermal: ~w(#0e68ad #e8e8e8 #c02e31),
-    diverging: ~w(#b35806 #ededed #62448e),
-    sequential: ~w(#e9f2fc #5e95d3 #004580)
+    thermal: [~RGB"#0e68ad", ~RGB"#e8e8e8", ~RGB"#c02e31"],
+    diverging: [~RGB"#b35806", ~RGB"#ededed", ~RGB"#62448e"],
+    sequential: [~RGB"#e9f2fc", ~RGB"#5e95d3", ~RGB"#004580"]
   }
   @dark_ramps %{
     status: [{:color, :green}, {:color, :amber}, {:color, :red}],
-    thermal: ~w(#7fb3e6 #3a3f48 #f47c7c),
-    diverging: ~w(#f7a35c #3a3f48 #c1acee),
-    sequential: ~w(#273b4f #457cb1 #aad1f9)
+    thermal: [~RGB"#7fb3e6", ~RGB"#3a3f48", ~RGB"#f47c7c"],
+    diverging: [~RGB"#f7a35c", ~RGB"#3a3f48", ~RGB"#c1acee"],
+    sequential: [~RGB"#273b4f", ~RGB"#457cb1", ~RGB"#aad1f9"]
   }
   # Blue → orange → red: the status order survives the commonest color-vision deficiencies.
-  @safe_status ~w(#5996d6 #cd6012 #b92931)
+  @safe_status [~RGB"#5996d6", ~RGB"#cd6012", ~RGB"#b92931"]
 
   # The theme's own part of its color table (§2.2): its status hues, the hues of `:info`
   # and `:neutral`, and the five roles by use, the status three as their positions on the
   # status ramp, so a role and its position never disagree.
   @by_use %{good: {:ramp, :status, 0}, warning: {:ramp, :status, 0.5}, bad: {:ramp, :status, 1}}
   @light_colors Map.merge(@by_use, %{
-                  red: "#c23238",
-                  amber: "#bd7407",
-                  green: "#4ca34b",
-                  blue: "#3b6fa8",
-                  gray: "#6f7480",
-                  info: "#3b6fa8",
-                  neutral: "#6f7480"
+                  red: ~RGB"#c23238",
+                  amber: ~RGB"#bd7407",
+                  green: ~RGB"#4ca34b",
+                  blue: ~RGB"#3b6fa8",
+                  gray: ~RGB"#6f7480",
+                  info: ~RGB"#3b6fa8",
+                  neutral: ~RGB"#6f7480"
                 })
   @dark_colors Map.merge(@by_use, %{
-                 red: "#ff8f8a",
-                 amber: "#db8e1c",
-                 green: "#4f924c",
-                 blue: "#7fb3e6",
-                 gray: "#b7bcc6",
-                 info: "#7fb3e6",
-                 neutral: "#b7bcc6"
+                 red: ~RGB"#ff8f8a",
+                 amber: ~RGB"#db8e1c",
+                 green: ~RGB"#4f924c",
+                 blue: ~RGB"#7fb3e6",
+                 gray: ~RGB"#b7bcc6",
+                 info: ~RGB"#7fb3e6",
+                 neutral: ~RGB"#b7bcc6"
                })
   # The CSS named colors, the table's base (§1.1, §2.2).
   @css_names Macaw.Layers.Color.Names.atoms()
 
   defstruct name: :default,
             series: @light_series,
-            axis: "#666666",
-            grid: "#e0e0e0",
-            text: "#333333",
-            background: "#ffffff",
-            surface: "#eef2f6",
+            axis: ~RGB"#666666",
+            grid: ~RGB"#e0e0e0",
+            text: ~RGB"#333333",
+            background: ~RGB"#ffffff",
+            surface: ~RGB"#eef2f6",
             ramps: @light_ramps,
             colors: @light_colors,
             styles: Palette.builtin(),
@@ -127,12 +141,12 @@ defmodule Macaw.Layers.Theme do
 
   @type t :: %__MODULE__{
           name: atom() | String.t(),
-          series: [String.t(), ...],
-          axis: String.t(),
-          grid: String.t(),
-          text: String.t(),
-          background: String.t(),
-          surface: String.t(),
+          series: [Color.t(), ...],
+          axis: Color.t(),
+          grid: Color.t(),
+          text: Color.t(),
+          background: Color.t(),
+          surface: Color.t(),
           ramps: %{optional(ramp_name()) => list()},
           colors: %{optional(atom() | String.t()) => term()},
           styles: %{optional(atom()) => map() | list()},
@@ -193,11 +207,11 @@ defmodule Macaw.Layers.Theme do
     %__MODULE__{
       name: :dark,
       series: @dark_series,
-      axis: "#a0a4ab",
-      grid: "#33373f",
-      text: "#e6e6e6",
-      background: "#1b1e24",
-      surface: "#23272f",
+      axis: ~RGB"#a0a4ab",
+      grid: ~RGB"#33373f",
+      text: ~RGB"#e6e6e6",
+      background: ~RGB"#1b1e24",
+      surface: ~RGB"#23272f",
       ramps: @dark_ramps,
       colors: @dark_colors,
       light: :default
@@ -221,11 +235,11 @@ defmodule Macaw.Layers.Theme do
   def print do
     %__MODULE__{
       name: :print,
-      axis: "#333333",
-      grid: "#c8c8c8",
-      text: "#111111",
-      background: "#ffffff",
-      surface: "#ffffff",
+      axis: ~RGB"#333333",
+      grid: ~RGB"#c8c8c8",
+      text: ~RGB"#111111",
+      background: ~RGB"#ffffff",
+      surface: ~RGB"#ffffff",
       ramps: %{@light_ramps | status: @safe_status},
       styles: Palette.print()
     }
@@ -297,14 +311,15 @@ defmodule Macaw.Layers.Theme do
   end
 
   @doc """
-  The color at `t` along the theme's ramp `name`, as a literal: the anchors spread evenly
-  over `0..1` and interpolated in CIE Lab, a position on an anchor the anchor as written,
-  `t` clamped. A theme that lacks the ramp takes the default theme's, never a series color.
+  The color at `t` along the theme's ramp `name`, as a literal color: the anchors spread
+  evenly over `0..1` and interpolated in CIE Lab, a position on an anchor the anchor's
+  literal, `t` clamped. A theme that lacks the ramp takes the default theme's, never a series
+  color.
 
       iex> Macaw.Layers.Theme.ramp(Macaw.Layers.Theme.default(), :thermal, 0.25)
-      "#8da5cb"
+      %Macaw.Layers.Color{r: 141.0, g: 165.0, b: 203.0, opacity: 1.0}
   """
-  @spec ramp(t(), ramp_name(), number()) :: String.t()
+  @spec ramp(t(), ramp_name(), number()) :: Color.t()
   def ramp(%__MODULE__{} = theme, name, t) when is_number(t) do
     anchors = Table.anchors(theme, name)
     n = length(anchors) - 1
@@ -313,14 +328,13 @@ defmodule Macaw.Layers.Theme do
     u = position - i
 
     if u == 0 do
-      Enum.at(anchors, i)
+      anchor!(name, Enum.at(anchors, i))
     else
       Color.interpolate_lab(
         anchor!(name, Enum.at(anchors, i)),
         anchor!(name, Enum.at(anchors, i + 1)),
         u
       )
-      |> Color.to_hex()
     end
   end
 
@@ -332,9 +346,13 @@ defmodule Macaw.Layers.Theme do
       )
 
   defp anchor!(name, anchor) do
-    (is_binary(anchor) && Color.parse(anchor)) ||
-      raise ArgumentError, "ramp #{inspect(name)}: anchor #{inspect(anchor)} is not a color"
+    if Color.literal?(anchor),
+      do: anchor,
+      else: raise(ArgumentError, "ramp #{inspect(name)}: anchor #{not_color(anchor)}")
   end
+
+  defp not_color(text) when is_binary(text), do: Typed.text_hint(text)
+  defp not_color(other), do: "#{inspect(other)} is not a color"
 
   # -- the style palette (§2.4) ------------------------------------------------------------
 
@@ -437,8 +455,15 @@ defmodule Macaw.Layers.Theme do
 
   @doc """
   `default/0` with the given fields replaced; `ramps`, `colors`, `styles` and `defaults`
-  merged key by key. An unknown field raises `KeyError`; an empty `series`, or a ramp,
-  color or palette entry that breaks its contract, raises `ArgumentError` (§2.6).
+  merged key by key. An unknown field raises `KeyError`; an empty `series`, a series or
+  furniture color that is not a literal color, or a ramp, color or palette entry that breaks
+  its contract, raises `ArgumentError` (§2.6). A string is never a color: read text with
+  `Macaw.Layers.Color.parse!/1`, or write it in the source as `~RGB"#555555"`.
+
+      iex> Macaw.Layers.Theme.new(axis: Macaw.Layers.Color.parse!("#555555")).axis
+      %Macaw.Layers.Color{r: 85.0, g: 85.0, b: 85.0, opacity: 1.0}
+      iex> Macaw.Layers.Theme.new(axis: "#555")
+      ** (ArgumentError) theme :default: axis "#555" is text, and a string is never a color: read it with Macaw.Layers.Color.parse!/1, or write ~RGB"#555"
   """
   @spec new(keyword() | map()) :: t()
   def new(fields), do: merge(%{default() | dark: nil}, fields)
@@ -450,7 +475,7 @@ defmodule Macaw.Layers.Theme do
       iex> theme = Macaw.Layers.Theme.new(name: :house, styles: %{muted: %{opacity: 0.4}})
       iex> Macaw.Layers.Theme.style(theme, :muted)
       %{opacity: 0.4}
-      iex> Macaw.Layers.Theme.new(name: :house, colors: %{warning: "#f5c242"})
+      iex> Macaw.Layers.Theme.new(name: :house, colors: %{warning: Macaw.Layers.Color.parse!("#f5c242")})
       ** (ArgumentError) theme "house": style :warning breaks its contract: fill {:color, :warning} is 1.65:1 against #ffffff; a role style's paint must reach 3:1 (WCAG 1.4.11, non-text contrast)
   """
   @spec merge(t(), keyword() | map()) :: t()
@@ -465,6 +490,8 @@ defmodule Macaw.Layers.Theme do
           ArgumentError,
           "series: a theme holds at most #{Slots.max()} colors, got #{length(theme.series)}"
         )
+
+    literals!(theme)
 
     case check(theme) do
       :ok ->
@@ -513,6 +540,20 @@ defmodule Macaw.Layers.Theme do
     }
   end
 
+  # The series and the furniture hold literal colors, terms (§2.1): text is refused naming
+  # the edges that read it.
+  defp literals!(theme) do
+    fields =
+      Enum.with_index(List.wrap(theme.series), &{"series[#{&2}]", &1}) ++
+        Enum.map(@color_slots, &{Atom.to_string(&1), Map.fetch!(theme, &1)})
+
+    for {field, value} <- fields, not Color.literal?(value) do
+      raise ArgumentError, "theme #{inspect(theme.name)}: #{field} #{not_color(value)}"
+    end
+
+    :ok
+  end
+
   defp merged(own, given, _key) when is_map(given), do: Map.merge(own || %{}, given)
   defp merged(own, given, key) when is_list(given), do: merged(own, Map.new(given), key)
 
@@ -543,7 +584,8 @@ defmodule Macaw.Layers.Theme do
 
       iex> Macaw.Layers.Theme.check(Macaw.Layers.Theme.dark())
       :ok
-      iex> theme = %{Macaw.Layers.Theme.default() | ramps: %{status: ~w(#c23238 #bd7407 #4ca34b)}}
+      iex> status = Enum.map(~w(#c23238 #bd7407 #4ca34b), &Macaw.Layers.Color.parse!/1)
+      iex> theme = %{Macaw.Layers.Theme.default() | ramps: %{status: status}}
       iex> {:error, {:ramp, :status}, message} = Macaw.Layers.Theme.check(theme)
       iex> message =~ "good (0) must be green or blue"
       true
@@ -564,7 +606,7 @@ defmodule Macaw.Layers.Theme do
   def violations(%__MODULE__{ramps: ramps} = theme) when is_map(ramps) do
     colors = Table.own_colors(theme)
 
-    # A ramp's anchors are measured as the strings they name; one that names none is left
+    # A ramp's anchors are measured as the literals they name; one that names none is left
     # as written, which the contract refuses as no color.
     resolved =
       Map.new(ramps, fn
@@ -675,19 +717,20 @@ defmodule Macaw.Layers.Theme do
 
   @doc false
   # The literal a theme pins at step `n` of a name's scale, `nil` when it pins none there.
-  @spec step(t(), atom() | String.t(), number()) :: String.t() | nil
+  @spec step(t(), atom() | String.t(), number()) :: Color.t() | nil
   def step(%__MODULE__{} = theme, name, n), do: Table.step(theme, name, n)
 
   # -- resolution (§3.1) ------------------------------------------------------------------
 
   @doc """
   The slot's value: the stored literal, or a CSS custom-property reference that falls back
-  to it. Sizes are numbers under `:literal` and gain `px` under `:css`. A ramp position is
-  its literal in both modes, except where a status role stands, `{:ramp, :status, 0 | 0.5 |
-  1}`, which resolves as the role while the table holds the role there. An unknown name, or
-  a series slot beyond the palette, raises `ArgumentError`.
+  to its CSS text. A color is a literal `%Macaw.Layers.Color{}` under `:literal`; sizes are
+  numbers under `:literal` and gain `px` under `:css`. A ramp position is its literal in
+  both modes, as CSS text under `:css`, except where a status role stands, `{:ramp, :status,
+  0 | 0.5 | 1}`, which resolves as the role while the table holds the role there. An unknown
+  name, or a series slot beyond the palette, raises `ArgumentError`.
   """
-  @spec resolve(t(), slot() | ramp_position(), mode()) :: String.t() | number()
+  @spec resolve(t(), slot() | ramp_position(), mode()) :: Color.t() | String.t() | number()
   def resolve(%__MODULE__{} = theme, {:series, i}, mode),
     do: resolve(theme, series_slot(theme, i), mode)
 
@@ -696,11 +739,12 @@ defmodule Macaw.Layers.Theme do
            at == t and Table.lookup(theme, role) == {:ramp, :status, at}
          end) do
       {role, _at} -> resolve(theme, role, mode)
-      nil -> ramp(theme, :status, t)
+      nil -> theme |> ramp(:status, t) |> written(mode)
     end
   end
 
-  def resolve(%__MODULE__{} = theme, {:ramp, name, t}, _mode), do: ramp(theme, name, t)
+  def resolve(%__MODULE__{} = theme, {:ramp, name, t}, mode),
+    do: theme |> ramp(name, t) |> written(mode)
 
   def resolve(%__MODULE__{} = theme, slot, :literal) when is_atom(slot) or is_binary(slot) do
     {_kind, value} = Table.value(theme, slot)
@@ -711,6 +755,10 @@ defmodule Macaw.Layers.Theme do
     {kind, value} = Table.value(theme, slot)
     "var(#{css_name(slot)}, #{Table.css_value(kind, value)})"
   end
+
+  # A ramp position is a literal in both modes (§3.1): in `:css`, its CSS text.
+  defp written(literal, :css), do: Color.to_css(literal)
+  defp written(literal, :literal), do: literal
 
   @doc """
   The custom-property name of a slot or a color name: `--mw-` and the name with `_` as `-`.
@@ -732,17 +780,19 @@ defmodule Macaw.Layers.Theme do
   # -- the ink (§3.2) ---------------------------------------------------------------------
 
   @doc """
-  The contrast ink for a text drawn on `under`: the literal of the theme's `text` or
-  `background`, whichever contrasts more (`text` on a tie), or `#000000`/`#ffffff`,
-  whichever contrasts more, when neither reaches 4.5:1. `under` is a color string, a
-  `%Macaw.Layers.Color{}`, or `nil` for the theme's background; an unreadable string is
-  `nil`, and a slot whose own value does not parse is skipped.
+  The contrast ink for a text drawn on `under`: the literal color of the theme's `text` or
+  `background`, whichever contrasts more (`text` on a tie), or black or white, whichever
+  contrasts more, when neither reaches 4.5:1. `under` is a literal `%Macaw.Layers.Color{}`,
+  or `nil` for the theme's background; anything else, text included, raises
+  `ArgumentError`. A slot that holds no literal color, in a theme built by hand, is skipped.
 
+      iex> import Macaw.Layers.Color, only: [sigil_RGB: 2]
       iex> theme = Macaw.Layers.Theme.default()
-      iex> {Macaw.Layers.Theme.ink(theme, "#3b6fa8"), Macaw.Layers.Theme.ink(theme, nil), Macaw.Layers.Theme.ink(theme, "#777777")}
-      {"#ffffff", "#333333", "#000000"}
+      iex> [Macaw.Layers.Theme.ink(theme, ~RGB"#3b6fa8"), Macaw.Layers.Theme.ink(theme, nil), Macaw.Layers.Theme.ink(theme, ~RGB"#777777")]
+      ...> |> Enum.map(&Macaw.Layers.Color.to_css/1)
+      ["#ffffff", "#333333", "#000000"]
   """
-  @spec ink(t(), String.t() | Color.t() | nil) :: String.t()
+  @spec ink(t(), Color.t() | nil) :: Color.t()
   defdelegate ink(theme, under), to: Contrast
 
   # -- contrast and the profile (§2.6, §4) -----------------------------------------------
@@ -757,18 +807,20 @@ defmodule Macaw.Layers.Theme do
   defdelegate floors(theme), to: Contrast
 
   @doc """
-  A color value held to a profile (§4): under `:roles` a value with a literal string among
-  its leaves is `{:error, {:literal_color, value}}`; under `:open` every color passes.
+  A color value held to a profile (§4): under `:roles` a value with a literal color among
+  its leaves is `{:error, {:literal_color, value}}`; under `:open` every color passes. A term
+  that is no color value, text included, raises `ArgumentError`.
   """
   @spec check_color(term(), :roles | :open) :: :ok | {:error, {:literal_color, term()}}
   defdelegate check_color(value, profile), to: Contrast
 
   @doc """
-  A data color under the contrast guard (§4): `{:ok, literal}` where it reaches 3:1 against
-  the theme's background, `{:error, {:contrast, ratio}}` where it does not, and `{:error,
-  :unreadable}` for a value that does not resolve.
+  A data color under the contrast guard (§4): `{:ok, literal}`, its literal color, where it
+  reaches 3:1 against the theme's background, `{:error, {:contrast, ratio}}` where it does
+  not, and `{:error, :unreadable}` for a term that is no color value or does not resolve,
+  text included.
   """
   @spec data_color(t(), term()) ::
-          {:ok, String.t()} | {:error, {:contrast, float()} | :unreadable}
+          {:ok, Color.t()} | {:error, {:contrast, float()} | :unreadable}
   defdelegate data_color(theme, value), to: Contrast
 end

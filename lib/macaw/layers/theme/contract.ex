@@ -3,9 +3,12 @@ defmodule Macaw.Layers.Theme.Contract do
   # The meaning contracts of a theme's ramps and roles (spec/04 §2.3, visualize D-135), measured in
   # CIE LCh against the D50 white point. `check/3` answers the first ramp or role that
   # breaks its contract, with a message naming the term it breaks and the values measured,
-  # or `:ok`. The tolerances are the spec's, and each says why it is the number it is.
+  # or `:ok`. The tolerances are the spec's, and each says why it is the number it is. An
+  # anchor and a role are literal colors, `%Macaw.Layers.Color{}`, named in a message by
+  # their CSS text.
 
   alias Macaw.Layers.Color
+  alias Macaw.Layers.Color.Typed
 
   @ramps [:status, :thermal, :diverging, :sequential]
   @roles [:info, :neutral]
@@ -75,7 +78,7 @@ defmodule Macaw.Layers.Theme.Contract do
   defp ramp(name, anchors) when is_list(anchors) and length(anchors) >= 2 do
     case parse_all(anchors) do
       {:ok, colors} -> contract(name, Enum.zip(anchors, colors))
-      {:bad, i, anchor} -> fault(name, "anchor #{i} #{inspect(anchor)} is not a color")
+      {:bad, i, anchor} -> fault(name, "anchor #{i} #{not_color(anchor)}")
     end
   end
 
@@ -89,10 +92,9 @@ defmodule Macaw.Layers.Theme.Contract do
     anchors
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, []}, fn {anchor, i}, {:ok, acc} ->
-      case is_binary(anchor) && Color.parse(anchor) do
-        %Color{} = color -> {:cont, {:ok, [Color.to_hcl(color) | acc]}}
-        _ -> {:halt, {:bad, i, anchor}}
-      end
+      if Color.literal?(anchor),
+        do: {:cont, {:ok, [Color.to_hcl(anchor) | acc]}},
+        else: {:halt, {:bad, i, anchor}}
     end)
     |> case do
       {:ok, acc} -> {:ok, Enum.reverse(acc)}
@@ -141,7 +143,7 @@ defmodule Macaw.Layers.Theme.Contract do
 
     if u == 0,
       do: lch,
-      else: Color.to_hcl(Color.interpolate_lab(Color.parse(a), Color.parse(b), u))
+      else: Color.to_hcl(Color.interpolate_lab(a, b, u))
   end
 
   defp region(name, anchors, t, regions, what) do
@@ -227,8 +229,8 @@ defmodule Macaw.Layers.Theme.Contract do
         fault(
           name,
           "its hue must fall from good to bad (green or blue → amber → red), but " <>
-            "anchor #{j} #{inspect(b)} at #{round1(norm(hb))}° turns back from anchor #{i} " <>
-            "#{inspect(a)} at #{round1(norm(ha))}°"
+            "anchor #{j} #{Typed.describe(b)} at #{round1(norm(hb))}° turns back from anchor " <>
+            "#{i} #{Typed.describe(a)} at #{round1(norm(ha))}°"
         )
     end
   end
@@ -275,8 +277,8 @@ defmodule Macaw.Layers.Theme.Contract do
         fault(
           name,
           "lightness must change one way along the ramp, by at least #{@step} L* a " <>
-            "step (its ends say it #{if sign > 0, do: "rises", else: "falls"}); anchor #{j} #{inspect(b)} (L* #{round1(lb)}) " <>
-            "moves #{how} from anchor #{i} #{inspect(a)} (L* #{round1(la)})"
+            "step (its ends say it #{if sign > 0, do: "rises", else: "falls"}); anchor #{j} #{Typed.describe(b)} (L* #{round1(lb)}) " <>
+            "moves #{how} from anchor #{i} #{Typed.describe(a)} (L* #{round1(la)})"
         )
     end
   end
@@ -284,11 +286,13 @@ defmodule Macaw.Layers.Theme.Contract do
   # -- roles --------------------------------------------------------------------------
 
   defp role(name, color) do
-    case is_binary(color) && Color.parse(color) do
-      %Color{} = parsed -> role_contract(name, Color.to_hcl(parsed))
-      _ -> {:error, {:color, name}, "#{inspect(color)} is not a color"}
-    end
+    if Color.literal?(color),
+      do: role_contract(name, Color.to_hcl(color)),
+      else: {:error, {:color, name}, not_color(color)}
   end
+
+  defp not_color(text) when is_binary(text), do: Typed.text_hint(text)
+  defp not_color(other), do: "#{Typed.describe(other)} is not a color"
 
   defp role_contract(:info, lch) do
     cond do

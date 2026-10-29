@@ -3,7 +3,8 @@ defmodule Macaw.Layers.Theme.Contrast do
   # Contrast on a theme (spec/04 §2.6, §3.2, §4): the ink a text takes over a color, the
   # floors a theme offered to people holds against its own background, a color value held
   # to a profile, and a data color under the contrast guard. `Macaw.Layers.Theme` is the
-  # public face.
+  # public face. Every color here is a term, a literal `%Macaw.Layers.Color{}`; a string is
+  # never one (spec/04 §1.1).
   #
   # The ink is ported from visualize's `Visualize.Theme.ink/2`.
 
@@ -17,16 +18,18 @@ defmodule Macaw.Layers.Theme.Contrast do
   # A grid is seen, never read: enough to show the plane's divisions.
   @grid 1.2
 
+  @black Color.rgb(0, 0, 0)
+  @white Color.rgb(255, 255, 255)
+
   @doc false
-  @spec ink(Theme.t(), String.t() | Color.t() | nil) :: String.t()
+  @spec ink(Theme.t(), Color.t() | nil) :: Color.t()
   def ink(%Theme{} = theme, under) do
-    under = parsed(under) || parsed(theme.background) || Color.rgb(255, 255, 255)
+    under = under!(under) || literal(theme.background) || @white
 
     slots =
-      for literal <- [theme.text, theme.background],
-          color = parsed(literal),
-          color != nil,
-          do: {literal, Color.contrast(color, under)}
+      for slot <- [theme.text, theme.background],
+          Color.literal?(slot),
+          do: {slot, Color.contrast(slot, under)}
 
     case best(slots) do
       {literal, ratio} when ratio >= @text ->
@@ -34,12 +37,19 @@ defmodule Macaw.Layers.Theme.Contrast do
 
       _neither ->
         {literal, _ratio} =
-          best([
-            {"#000000", Color.contrast(Color.rgb(0, 0, 0), under)},
-            {"#ffffff", Color.contrast(Color.rgb(255, 255, 255), under)}
-          ])
+          best([{@black, Color.contrast(@black, under)}, {@white, Color.contrast(@white, under)}])
 
         literal
+    end
+  end
+
+  defp under!(nil), do: nil
+
+  defp under!(under) do
+    cond do
+      Color.literal?(under) -> under
+      is_binary(under) -> raise ArgumentError, "ink: under #{Typed.text_hint(under)}"
+      true -> raise ArgumentError, "ink: under is a literal color or nil, got #{inspect(under)}"
     end
   end
 
@@ -52,14 +62,13 @@ defmodule Macaw.Layers.Theme.Contrast do
     end)
   end
 
-  defp parsed(%Color{} = color), do: color
-  defp parsed(string) when is_binary(string), do: Color.parse(string)
-  defp parsed(_other), do: nil
+  # A slot's literal, `nil` where a theme built by hand holds none.
+  defp literal(value), do: if(Color.literal?(value), do: value)
 
   @doc false
   @spec floors(Theme.t()) :: :ok | {:error, [{atom(), term()}, ...]}
   def floors(%Theme{} = theme) do
-    background = parsed(theme.background) || Color.rgb(255, 255, 255)
+    background = literal(theme.background) || @white
 
     series =
       theme.series
@@ -82,18 +91,19 @@ defmodule Macaw.Layers.Theme.Contrast do
     end
   end
 
-  # A literal that does not parse reaches no ratio.
-  defp ratio(literal, background) do
-    case parsed(literal) do
+  # A slot that holds no literal reaches no ratio.
+  defp ratio(value, background) do
+    case literal(value) do
       %Color{} = color -> Float.floor(Color.contrast(over(color, background), background), 2)
       nil -> 0.0
     end
   end
 
+  # Two literals are one color where they write one hex: what a reader can tell apart.
   defp same?(a, b) do
-    case {parsed(a), parsed(b)} do
+    case {literal(a), literal(b)} do
       {%Color{} = x, %Color{} = y} -> Color.to_hex(x) == Color.to_hex(y)
-      _other -> a == b
+      _other -> a === b
     end
   end
 
@@ -105,16 +115,19 @@ defmodule Macaw.Layers.Theme.Contrast do
 
   @doc false
   @spec check_color(term(), :roles | :open) :: :ok | {:error, {:literal_color, term()}}
-  def check_color(_value, :open), do: :ok
-
-  def check_color(value, :roles) do
-    if literal?(value), do: {:error, {:literal_color, value}}, else: :ok
+  def check_color(value, profile) when profile in [:roles, :open] do
+    cond do
+      is_binary(value) -> raise ArgumentError, "check_color: #{Typed.text_hint(value)}"
+      not Color.value?(value) -> raise ArgumentError, "not a color value: #{inspect(value)}"
+      profile == :roles and literal?(value) -> {:error, {:literal_color, value}}
+      true -> :ok
+    end
   end
 
   def check_color(_value, profile),
     do: raise(ArgumentError, "a color profile is :roles or :open, got #{inspect(profile)}")
 
-  defp literal?(value) when is_binary(value), do: true
+  defp literal?(%Color{}), do: true
   defp literal?({:blend, list}) when is_list(list), do: Enum.any?(list, &literal?/1)
   defp literal?({:contrast, c}), do: literal?(c)
   defp literal?({_op, c, t}) when is_number(t), do: literal?(c)
@@ -122,33 +135,32 @@ defmodule Macaw.Layers.Theme.Contrast do
 
   @doc false
   @spec data_color(Theme.t(), term()) ::
-          {:ok, String.t()} | {:error, {:contrast, float()} | :unreadable}
+          {:ok, Color.t()} | {:error, {:contrast, float()} | :unreadable}
   def data_color(%Theme{} = theme, value) do
-    background = parsed(theme.background) || Color.rgb(255, 255, 255)
+    background = literal(theme.background) || @white
 
-    with literal when is_binary(literal) <- literal(theme, value),
-         %Color{} = color <- Color.parse(literal) do
-      ratio = Color.contrast(over(color, background), background)
+    case resolved(theme, value) do
+      %Color{} = color ->
+        ratio = Color.contrast(over(color, background), background)
 
-      if ratio >= @non_text,
-        do: {:ok, literal},
-        else: {:error, {:contrast, Float.floor(ratio, 2)}}
-    else
-      _unreadable -> {:error, :unreadable}
+        if ratio >= @non_text,
+          do: {:ok, color},
+          else: {:error, {:contrast, Float.floor(ratio, 2)}}
+
+      nil ->
+        {:error, :unreadable}
     end
   end
 
-  # The literal a data color resolves to, or `nil` where it does not: a string as written,
-  # a color value whose every name, ramp and operand the theme resolves.
-  defp literal(_theme, value) when is_binary(value), do: if(Typed.readable?(value), do: value)
-
-  defp literal(theme, value) do
-    if Color.value?(value) and resolves?(theme, value), do: Color.resolve(value, theme, :literal)
+  # The literal a data color resolves to, or `nil` where it does not: a color value whose
+  # every name and ramp the theme resolves. Text is no color, and so resolves to none.
+  defp resolved(theme, value) do
+    if Color.value?(value) and resolves?(theme, value),
+      do: Color.resolve(value, theme, :literal)
   end
 
   defp resolves?(theme, value) do
-    Typed.unreadable(value) == [] and
-      Enum.all?(Typed.names(value), &Theme.color_name?(theme, &1)) and
+    Enum.all?(Typed.names(value), &Theme.color_name?(theme, &1)) and
       Table.names_resolve(theme, value, []) == :ok
   end
 end

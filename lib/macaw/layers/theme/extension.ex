@@ -8,7 +8,7 @@ defmodule Macaw.Layers.Theme.Extension do
         @behaviour Macaw.Layers.Theme.Extension
         def name, do: "marks"
         def styles, do: %{lane: {:furniture, %{stroke: %{type: :solid, color: {:color, :lane}}}}}
-        def colors, do: %{lane: "#8a8f99"}
+        def colors, do: %{lane: Macaw.Layers.Color.parse!("#8a8f99")}
       end
 
       Macaw.Layers.Theme.new(extensions: [MyApp.Marks])
@@ -17,7 +17,9 @@ defmodule Macaw.Layers.Theme.Extension do
   a palette or color name that neither the library nor an extension has is a fault naming
   it. The names an extension adds are held to the contracts of their group, its default
   entries included. Two extensions adding one name, or an extension adding a library name,
-  raise `ArgumentError` naming both.
+  raise `ArgumentError` naming both. A color an extension adds is a color value, a literal
+  `%Macaw.Layers.Color{}` or a typed color; text raises `ArgumentError` naming the
+  extension, since a string is never a color.
   """
 
   @typedoc "A group of the palette an extension's style joins."
@@ -27,8 +29,8 @@ defmodule Macaw.Layers.Theme.Extension do
   @callback name() :: String.t()
   @doc "The palette names it adds, each in a group with its default entry."
   @callback styles() :: %{atom() => {group(), map() | list()}}
-  @doc "The names it adds to the color table, each with its default value."
-  @callback colors() :: %{atom() => term()}
+  @doc "The names it adds to the color table, each with its default value: a color value."
+  @callback colors() :: %{atom() => Macaw.Layers.Color.value() | map()}
 
   @groups [:state, :furniture, :modifier]
 
@@ -45,10 +47,25 @@ defmodule Macaw.Layers.Theme.Extension do
               "#{inspect(group)}; an extension's style is a #{Enum.map_join(@groups, ", ", &inspect/1)}"
     end
 
+    for ext <- extensions, {name, value} <- ext.colors(), not color?(value) do
+      raise ArgumentError,
+            "extension #{inspect(ext.name())}: color #{inspect(name)} " <>
+              if(is_binary(value),
+                do: Macaw.Layers.Color.Typed.text_hint(value),
+                else: "is not a color value, got #{inspect(value)}"
+              )
+    end
+
     owners(extensions, :styles, library_styles)
     owners(extensions, :colors, library_colors)
     extensions
   end
+
+  # A default is a color value, or a literal's pinned steps (spec/04 §2.2).
+  defp color?(%{} = steps) when not is_struct(steps),
+    do: Enum.all?(steps, fn {n, c} -> is_integer(n) and Macaw.Layers.Color.literal?(c) end)
+
+  defp color?(value), do: Macaw.Layers.Color.value?(value)
 
   defp owners(extensions, kind, library) do
     Enum.reduce(extensions, %{}, fn ext, seen ->

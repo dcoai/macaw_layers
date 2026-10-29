@@ -15,14 +15,15 @@ defmodule Macaw.Layers.Color.Form do
   | `{:lighten, c, 0.3}`, and so each transform | `{"$lighten": [C, 0.3]}` |
   | `{:blend, [c, …]}` | `{"$blend": [C, …]}` |
   | `{:contrast, :under}`, `{:contrast, c}` | `{"$contrast": "under"}`, `{"$contrast": C}` |
-  | `%{500 => "#d62728", 100 => …}` | `{"$steps": [[100, …], [500, "#d62728"]]}` |
+  | `%{500 => c, 100 => …}`, each step a literal | `{"$steps": [[100, …], [500, C]]}`, each `C` its `$rgb` |
 
   `$rgb` reads back the canonical struct (`Macaw.Layers.Color.literal?/1`), so decoding the
   payload `encode_value/1` writes of a literal color gives that color again. Its payload is
   `#` and six or eight hex digits, or four numbers in their ranges; any other is no color.
   A struct that is not a literal color has no form. A name the library gives is read as
-  its atom and any other as its string; a ramp of another name is no color. No atom is
-  made from a document.
+  its atom and any other as its string; a ramp of another name is no color. A string is
+  never a color: an operand or a step is a color's own form, and a bare string in its place
+  is no color. No atom is made from a document.
 
   A type implements `c:Macaw.Layers.Form.encode_value/1` and
   `c:Macaw.Layers.Form.decode_value/2` by calling these, and lists `tags/0` among its live
@@ -96,15 +97,20 @@ defmodule Macaw.Layers.Color.Form do
   end
 
   def encode_value(steps) when is_map(steps) and not is_struct(steps) and map_size(steps) > 0 do
-    if Enum.all?(steps, fn {n, c} -> is_integer(n) and is_binary(c) end),
-      do: {:ok, %{"$steps" => steps |> Enum.sort() |> Enum.map(fn {n, c} -> [n, c] end)}},
+    if Enum.all?(steps, fn {n, c} -> is_integer(n) and Color.literal?(c) end),
+      do: {:ok, %{"$steps" => steps |> Enum.sort() |> Enum.map(fn {n, c} -> [n, rgb(c)] end)}},
       else: :default
   end
 
   def encode_value(_term), do: :default
 
-  defp operand(c) when is_binary(c), do: {:ok, c}
-  defp operand(c), do: encode_value(c)
+  # An operand is a color value in its own form; text is none.
+  defp operand(c), do: if(Color.value?(c), do: encode_value(c), else: :default)
+
+  defp rgb(literal) do
+    {:ok, form} = encode_value(literal)
+    form
+  end
 
   @doc """
   The value of one of `tags/0`, its payload already read: `{:ok, value}`, or `:default` for
@@ -155,9 +161,10 @@ defmodule Macaw.Layers.Color.Form do
   end
 
   def decode_value("$steps", [_ | _] = pairs) do
-    if Enum.all?(pairs, &match?([n, c] when is_integer(n) and is_binary(c), &1)),
-      do: {:ok, Map.new(pairs, fn [n, c] -> {n, c} end)},
-      else: :default
+    if Enum.all?(pairs, &match?([n, %Color{}] when is_integer(n), &1)) and
+         Enum.all?(pairs, fn [_n, c] -> Color.literal?(c) end),
+       do: {:ok, Map.new(pairs, fn [n, c] -> {n, c} end)},
+       else: :default
   end
 
   def decode_value(tag, [c, t]) when is_map_key(@op_tags, tag) and is_number(t) do
@@ -168,7 +175,7 @@ defmodule Macaw.Layers.Color.Form do
 
   def decode_value(_tag, _payload), do: :default
 
-  defp color?(c), do: is_binary(c) or Color.value?(c)
+  defp color?(c), do: Color.value?(c)
 
   defp in?(v, max), do: is_number(v) and v >= 0 and v <= max
 end

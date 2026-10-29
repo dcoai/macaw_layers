@@ -8,7 +8,16 @@ defmodule Macaw.Layers.Theme.CssTest do
   use ExUnit.Case, async: true
 
   import Macaw.Layers.Color,
-    only: [color: 1, intensity: 2, blend: 1, alpha: 2, lighten: 2, darken: 2, saturate: 2]
+    only: [
+      color: 1,
+      intensity: 2,
+      blend: 1,
+      alpha: 2,
+      lighten: 2,
+      darken: 2,
+      saturate: 2,
+      sigil_RGB: 2
+    ]
 
   alias Macaw.Layers.{Color, Theme}
   alias Macaw.Layers.Test.CssColor
@@ -22,7 +31,7 @@ defmodule Macaw.Layers.Theme.CssTest do
     blend([
       intensity(color(:blue), 0.2),
       intensity(color(:amber), 0.3),
-      intensity("#2f8f86", 0.1)
+      intensity(~RGB"#2f8f86", 0.1)
     ]),
     blend([color(:text), color(:background), color(:series_4)]),
     alpha(color(:series_2), 0.4),
@@ -30,13 +39,10 @@ defmodule Macaw.Layers.Theme.CssTest do
     darken(color(:blue), 0.25),
     saturate(color(:gray), 0.1),
     color(:series_1) |> lighten(0.2) |> alpha(0.8),
-    intensity(blend([color(:green), "#808080"]), 0.5)
+    intensity(blend([color(:green), ~RGB"#808080"]), 0.5)
   ]
 
-  defp channels(hex) do
-    %Color{r: r, g: g, b: b, opacity: a} = Color.parse(hex)
-    {r, g, b, a}
-  end
+  defp channels(%Color{r: r, g: g, b: b, opacity: a}), do: {r, g, b, a}
 
   @tag verifies: "color-css-agrees"
   test "the CSS of each transform evaluates to the literal :literal mode computes" do
@@ -76,7 +82,7 @@ defmodule Macaw.Layers.Theme.CssTest do
     assert Color.resolve(lighten(color(:red), 0.3), theme, :css) ==
              "oklch(from var(--mw-red, #c23238) calc(l + (1 - l) * 0.3) c h / alpha)"
 
-    assert Color.resolve(darken("#3b6fa8", 0.25), theme, :css) ==
+    assert Color.resolve(darken(~RGB"#3b6fa8", 0.25), theme, :css) ==
              "oklch(from #3b6fa8 calc(l * 0.75) c h / alpha)"
 
     assert Color.resolve(saturate(color(:red), 0.1), theme, :css) ==

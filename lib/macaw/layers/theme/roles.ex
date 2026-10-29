@@ -53,7 +53,8 @@ defmodule Macaw.Layers.Theme.Roles do
   # -- readable -------------------------------------------------------------------------
 
   defp readable(roles, theme) do
-    background = Color.parse(theme.background || "#ffffff") || Color.rgb(255, 255, 255)
+    background =
+      if Color.literal?(theme.background), do: theme.background, else: Color.rgb(255, 255, 255)
 
     for {role, entry} <- roles,
         part <- @paints,
@@ -63,7 +64,7 @@ defmodule Macaw.Layers.Theme.Roles do
         ratio = Color.contrast(over(color, theme, background), background),
         ratio < floor do
       {{:style, role},
-       "#{part} #{inspect(color)} is #{ratio(ratio)}:1 against #{Color.to_hex(background)}; " <>
+       "#{part} #{Typed.describe(color)} is #{ratio(ratio)}:1 against #{Color.to_css(background)}; " <>
          "a role style's #{rule}"}
     end
   end
@@ -77,7 +78,7 @@ defmodule Macaw.Layers.Theme.Roles do
 
   # The color as it is seen: laid over the background when translucent.
   defp over(color, theme, background) do
-    %Color{r: r, g: g, b: b, opacity: a} = Color.parse(Color.resolve(color, theme, :literal))
+    %Color{r: r, g: g, b: b, opacity: a} = Color.resolve(color, theme, :literal)
     mix = fn x, y -> x * a + y * (1 - a) end
     Color.rgb(mix.(r, background.r), mix.(g, background.g), mix.(b, background.b))
   end
@@ -89,15 +90,15 @@ defmodule Macaw.Layers.Theme.Roles do
       for {role, entry} <- roles,
           color = color(entry, :fill) || color(entry, :stroke),
           computable?(color),
-          do: {role, color, Color.to_oklab(Color.parse(Color.resolve(color, theme, :literal)))}
+          do: {role, color, Color.to_oklab(Color.resolve(color, theme, :literal))}
 
     for {{a, ca, la}, i} <- Enum.with_index(painted),
         {{b, cb, lb}, j} <- Enum.with_index(painted),
         i < j,
         (d = delta(la, lb)) < @jnd do
       {{:style, b},
-       "the role styles' colors must be distinct, but #{inspect(a)} paints #{inspect(ca)} and " <>
-         "#{inspect(b)} #{inspect(cb)}, #{Float.round(d, 3)} ΔEOK apart, under the " <>
+       "the role styles' colors must be distinct, but #{inspect(a)} paints #{Typed.describe(ca)} " <>
+         "and #{inspect(b)} #{Typed.describe(cb)}, #{Float.round(d, 3)} ΔEOK apart, under the " <>
          "just-noticeable #{@jnd}"}
     end
   end
@@ -143,12 +144,9 @@ defmodule Macaw.Layers.Theme.Roles do
     end
   end
 
-  # A color the check can compute: a typed color or a literal `Macaw.Layers.Color.parse/1`
-  # reads — not a field binding, a variable or a CSS word such as `currentColor`.
-  defp computable?(color) when is_binary(color), do: Typed.unreadable({:alpha, color, 1}) == []
-  defp computable?({:series, _} = color), do: Typed.value?(color)
-  defp computable?(color) when is_tuple(color), do: Typed.value?(color)
-  defp computable?(_color), do: false
+  # A color the check can compute: a color value, a literal or a typed color — not a field
+  # binding or a variable. Text is no color; the palette's contracts refuse it (§2.6).
+  defp computable?(color), do: Typed.value?(color)
 
   defp ratio(r), do: :erlang.float_to_binary(Float.floor(r * 100) / 100, decimals: 2)
 

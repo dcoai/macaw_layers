@@ -7,6 +7,8 @@ defmodule Macaw.Layers.Theme.PaletteTest do
   """
   use ExUnit.Case, async: true
 
+  import Macaw.Layers.Color, only: [sigil_RGB: 2]
+
   alias Macaw.Layers.Theme
 
   @themes [Theme.default(), Theme.dark(), Theme.color_safe(), Theme.print()]
@@ -190,13 +192,15 @@ defmodule Macaw.Layers.Theme.PaletteTest do
     @tag verifies: "themes-palette-contracts"
     test "a role style may paint in any color: a theme restyles a meaning" do
       vermilion =
-        Theme.new(colors: %{vermilion: "#d55e00"}, styles: %{bad: %{fill: solid(:vermilion)}})
+        Theme.new(colors: %{vermilion: ~RGB"#d55e00"}, styles: %{bad: %{fill: solid(:vermilion)}})
 
       # A color the theme declares is named by its string, its table's key by spelling.
       assert vermilion.styles.bad == %{fill: solid("vermilion")}
 
-      assert Theme.new(styles: %{info: %{stroke: %{type: :solid, color: "#3b6fa8", width: 2}}}).styles.info ==
-               %{stroke: %{type: :solid, color: "#3b6fa8", width: 2}}
+      assert Theme.new(
+               styles: %{info: %{stroke: %{type: :solid, color: ~RGB"#3b6fa8", width: 2}}}
+             ).styles.info ==
+               %{stroke: %{type: :solid, color: ~RGB"#3b6fa8", width: 2}}
 
       assert Theme.new(styles: %{neutral: %{stroke: %{width: 2}}}).styles.neutral == %{
                stroke: %{width: 2}
@@ -205,13 +209,13 @@ defmodule Macaw.Layers.Theme.PaletteTest do
 
     @tag verifies: "themes-palette-contracts"
     test "a role style's paint reaches 3:1 against the background, its text 4.5:1 (WCAG)" do
-      assert refusal(colors: %{warning: "#f5c242"}) ==
+      assert refusal(colors: %{warning: ~RGB"#f5c242"}) ==
                "theme \"house\": style :warning breaks its contract: fill {:color, :warning} is " <>
                  "1.65:1 against #ffffff; a role style's paint must reach 3:1 (WCAG 1.4.11, " <>
                  "non-text contrast)"
 
       assert refusal(
-               colors: %{bad: "#e0484e"},
+               colors: %{bad: ~RGB"#e0484e"},
                styles: %{bad: %{fill: solid(:bad), font: %{size: 12}}}
              ) =~
                "fill {:color, :bad} is 4.03:1 against #ffffff; a role style's text must reach " <>
@@ -220,7 +224,7 @@ defmodule Macaw.Layers.Theme.PaletteTest do
       # Measured against the theme's own background: the dark theme's roles read on it.
       assert Theme.check(Theme.dark()) == :ok
 
-      assert refusal(background: "#1b1e24", colors: %{neutral: "#3a3f48"}) =~
+      assert refusal(background: ~RGB"#1b1e24", colors: %{neutral: ~RGB"#3a3f48"}) =~
                ~r/style :neutral breaks its contract: fill \{:color, :neutral\} is 1\.\d\d:1 against #1b1e24/
     end
 
@@ -381,7 +385,7 @@ defmodule Macaw.Layers.Theme.PaletteTest do
     test "violations/1 names every breaking entry, after the ramps and roles" do
       theme = %{
         Theme.default()
-        | colors: Map.put(Theme.default().colors, :neutral, "#ff0000"),
+        | colors: Map.put(Theme.default().colors, :neutral, ~RGB"#ff0000"),
           styles: %{bad: %{fill: :good}, hover: %{stroke: :bad}, sparkle: %{}}
       }
 

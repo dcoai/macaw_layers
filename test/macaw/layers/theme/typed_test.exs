@@ -9,6 +9,7 @@ defmodule Macaw.Layers.Theme.TypedTest do
 
   import Macaw.Layers.Color,
     only: [
+      sigil_RGB: 2,
       color: 1,
       ramp: 2,
       intensity: 2,
@@ -66,9 +67,7 @@ defmodule Macaw.Layers.Theme.TypedTest do
   defp enc(c) when c <= 0.0031308, do: 12.92 * c
   defp enc(c), do: 1.055 * :math.pow(c, 1 / 2.4) - 0.055
 
-  defp ref_oklab(hex) do
-    %Color{r: r, g: g, b: b} = Color.parse(hex)
-
+  defp ref_oklab(%Color{r: r, g: g, b: b}) do
     [r, g, b]
     |> Enum.map(&lin(&1 / 255))
     |> then(&mul(@rgb_xyz, &1))
@@ -104,20 +103,18 @@ defmodule Macaw.Layers.Theme.TypedTest do
   end
 
   # A literal as `{r, g, b, alpha}`, each channel 0..255.
-  defp channels(hex) do
-    %Color{r: r, g: g, b: b, opacity: a} = Color.parse(hex)
-    {r, g, b, a}
-  end
+  defp channels(%Color{r: r, g: g, b: b, opacity: a}), do: {r, g, b, a}
 
-  defp assert_rgb(hex, expected, alpha \\ 1.0) do
-    {r, g, b, a} = channels(hex)
+  defp assert_rgb(literal, expected, alpha \\ 1.0) do
+    {r, g, b, a} = channels(literal)
+    css = Color.to_css(literal)
 
     for {got, want} <- Enum.zip([r, g, b], expected) do
       assert abs(got - want) <= 1,
-             "#{hex}: channel #{got}, expected #{Float.round(want * 1.0, 2)}"
+             "#{css}: channel #{got}, expected #{Float.round(want * 1.0, 2)}"
     end
 
-    assert abs(a - alpha) <= 1 / 255 + 1.0e-9, "#{hex}: alpha #{a}, expected #{alpha}"
+    assert abs(a - alpha) <= 1 / 255 + 1.0e-9, "#{css}: alpha #{a}, expected #{alpha}"
   end
 
   defp literal(value), do: Color.resolve(value, Theme.default(), :literal)
@@ -133,8 +130,8 @@ defmodule Macaw.Layers.Theme.TypedTest do
       assert [color(:blue) |> intensity(0.65), color(:red)] |> blend() |> alpha(0.5) ==
                {:alpha, {:blend, [{:intensity, {:color, :blue}, 0.65}, {:color, :red}]}, 0.5}
 
-      assert "#ff0000" |> lighten(0.1) |> darken(0.2) |> saturate(0.3) |> contrast() ==
-               {:contrast, {:saturate, {:darken, {:lighten, "#ff0000", 0.1}, 0.2}, 0.3}}
+      assert ~RGB"#ff0000" |> lighten(0.1) |> darken(0.2) |> saturate(0.3) |> contrast() ==
+               {:contrast, {:saturate, {:darken, {:lighten, ~RGB"#ff0000", 0.1}, 0.2}, 0.3}}
     end
 
     @tag verifies: "color-typed-transforms"
@@ -172,12 +169,32 @@ defmodule Macaw.Layers.Theme.TypedTest do
 
     @tag verifies: "color-typed-transforms"
     test "value?/1 reads every operand" do
-      assert Color.value?(blend([intensity("#000", 0.2), ramp(:thermal, 0.5)]))
+      assert Color.value?(blend([intensity(~RGB"#000", 0.2), ramp(:thermal, 0.5)]))
       assert Color.value?({:series, 3})
       refute Color.value?({:alpha, :red, 0.5})
       refute Color.value?({:blend, []})
       refute Color.value?({:lighten, color(:red), 2})
       refute Color.value?(:none)
+    end
+
+    @tag verifies: "color-typed-transforms"
+    test "a string is never a color: value?/1 refuses one, and so does every helper" do
+      for text <- ["good", "#fff", "#3b6fa8", "steelblue", ""] do
+        refute Color.value?(text)
+        refute Color.value?({:alpha, text, 0.5})
+        refute Color.value?({:blend, [color(:red), text]})
+
+        assert_raise ArgumentError,
+                     ~r/is text, and a string is never a color.*parse!\/1.*~RGB/,
+                     fn ->
+                       alpha(text, 0.5)
+                     end
+      end
+
+      # A literal is the canonical struct: one written by hand with integer fields is not.
+      assert Color.value?(~RGB"#3b6fa8")
+      refute Color.value?(%Color{r: 59, g: 111, b: 168, opacity: 1})
+      refute Color.value?({:contrast, %Color{r: 59, g: 111, b: 168, opacity: 1}})
     end
   end
 
@@ -186,16 +203,16 @@ defmodule Macaw.Layers.Theme.TypedTest do
   describe "OKLab and OKLCH" do
     # Published values for the sRGB primaries (CSS Color 4, Ottosson 2020).
     @primaries [
-      {"#ff0000", {0.62796, 0.22486, 0.12585}, {0.25768, 29.2339}},
-      {"#00ff00", {0.86644, -0.23389, 0.1795}, {0.29483, 142.4953}},
-      {"#0000ff", {0.45201, -0.03246, -0.31153}, {0.31321, 264.052}}
+      {~RGB"#ff0000", {0.62796, 0.22486, 0.12585}, {0.25768, 29.2339}},
+      {~RGB"#00ff00", {0.86644, -0.23389, 0.1795}, {0.29483, 142.4953}},
+      {~RGB"#0000ff", {0.45201, -0.03246, -0.31153}, {0.31321, 264.052}}
     ]
 
     @tag verifies: "color-typed-transforms"
     test "the primaries convert to their published values" do
-      for {hex, {l, a, b}, {c, h}} <- @primaries do
-        lab = Color.to_oklab(Color.parse(hex))
-        lch = Color.to_oklch(Color.parse(hex))
+      for {primary, {l, a, b}, {c, h}} <- @primaries do
+        lab = Color.to_oklab(primary)
+        lch = Color.to_oklch(primary)
         assert_in_delta lab.l, l, 1.0e-4
         assert_in_delta lab.a, a, 1.0e-4
         assert_in_delta lab.b, b, 1.0e-4
@@ -206,14 +223,22 @@ defmodule Macaw.Layers.Theme.TypedTest do
 
     @tag verifies: "color-typed-transforms"
     test "white is L 1 and a gray has no chroma" do
-      assert_in_delta Color.to_oklab(Color.parse("#ffffff")).l, 1.0, 1.0e-6
-      assert_in_delta Color.to_oklch(Color.parse("#808080")).c, 0.0, 1.0e-6
+      assert_in_delta Color.to_oklab(~RGB"#ffffff").l, 1.0, 1.0e-6
+      assert_in_delta Color.to_oklch(~RGB"#808080").c, 0.0, 1.0e-6
     end
 
     @tag verifies: "color-typed-transforms"
     test "the library's matrices agree with CSS Color 4's XYZ route" do
-      for hex <- ~w(#3b6fa8 #d9730d #c8373b #2f8f86 #e9f2fc #1b1e24 #bd7407) do
-        %{l: l, a: a, b: b} = Color.to_oklab(Color.parse(hex))
+      for hex <- [
+            ~RGB"#3b6fa8",
+            ~RGB"#d9730d",
+            ~RGB"#c8373b",
+            ~RGB"#2f8f86",
+            ~RGB"#e9f2fc",
+            ~RGB"#1b1e24",
+            ~RGB"#bd7407"
+          ] do
+        %{l: l, a: a, b: b} = Color.to_oklab(hex)
         [rl, ra, rb] = ref_oklab(hex)
         assert_in_delta l, rl, 1.0e-6
         assert_in_delta a, ra, 1.0e-6
@@ -223,11 +248,11 @@ defmodule Macaw.Layers.Theme.TypedTest do
 
     @tag verifies: "color-typed-transforms"
     test "oklab/4 and oklch/4 are the inverses, within a channel's rounding" do
-      for hex <- ~w(#3b6fa8 #d9730d #c8373b #000000 #ffffff) do
-        %{l: l, a: a, b: b} = Color.to_oklab(Color.parse(hex))
-        assert Color.to_hex(Color.oklab(l, a, b)) == hex
-        %{l: l, c: c, h: h} = Color.to_oklch(Color.parse(hex))
-        assert Color.to_hex(Color.oklch(l, c, h)) == hex
+      for hex <- [~RGB"#3b6fa8", ~RGB"#d9730d", ~RGB"#c8373b", ~RGB"#000000", ~RGB"#ffffff"] do
+        %{l: l, a: a, b: b} = Color.to_oklab(hex)
+        assert Color.to_hex(Color.oklab(l, a, b)) == Color.to_hex(hex)
+        %{l: l, c: c, h: h} = Color.to_oklch(hex)
+        assert Color.to_hex(Color.oklch(l, c, h)) == Color.to_hex(hex)
       end
     end
   end
@@ -237,47 +262,47 @@ defmodule Macaw.Layers.Theme.TypedTest do
   describe "intensity and blend, by CSS color-mix's rules" do
     @tag verifies: "color-typed-transforms"
     test "intensity on its own is the color at that fraction of its alpha" do
-      assert literal(intensity("#ff0000", 0.5)) == "#ff000080"
-      assert literal(intensity(alpha("#3b6fa8", 0.5), 0.5)) == "#3b6fa840"
-      assert literal(intensity("#3b6fa8", 1)) == "#3b6fa8"
+      assert literal(intensity(~RGB"#ff0000", 0.5)) === ~RGB"#ff000080"
+      assert literal(intensity(alpha(~RGB"#3b6fa8", 0.5), 0.5)) === ~RGB"#3b6fa840"
+      assert literal(intensity(~RGB"#3b6fa8", 1)) === ~RGB"#3b6fa8"
     end
 
     @tag verifies: "color-typed-transforms"
     test "two colors at full weight mix evenly in OKLab" do
-      expected = ref_mix([{"#3b6fa8", 0.5}, {"#d9730d", 0.5}])
-      assert_rgb(literal(blend(["#3b6fa8", "#d9730d"])), expected)
+      expected = ref_mix([{~RGB"#3b6fa8", 0.5}, {~RGB"#d9730d", 0.5}])
+      assert_rgb(literal(blend([~RGB"#3b6fa8", ~RGB"#d9730d"])), expected)
     end
 
     @tag verifies: "color-typed-transforms"
     test "intensities are the weights, and a sum below 1 leaves the rest transparent" do
-      value = blend([intensity("#3b6fa8", 0.3), intensity("#d9730d", 0.2)])
-      expected = ref_mix([{"#3b6fa8", 0.6}, {"#d9730d", 0.4}])
+      value = blend([intensity(~RGB"#3b6fa8", 0.3), intensity(~RGB"#d9730d", 0.2)])
+      expected = ref_mix([{~RGB"#3b6fa8", 0.6}, {~RGB"#d9730d", 0.4}])
       assert_rgb(literal(value), expected, 0.5)
     end
 
     @tag verifies: "color-typed-transforms"
     test "weights summing above 1 are scaled to sum to 1, and stay opaque" do
-      value = blend([intensity("#3b6fa8", 0.9), intensity("#d9730d", 0.6)])
-      expected = ref_mix([{"#3b6fa8", 0.6}, {"#d9730d", 0.4}])
+      value = blend([intensity(~RGB"#3b6fa8", 0.9), intensity(~RGB"#d9730d", 0.6)])
+      expected = ref_mix([{~RGB"#3b6fa8", 0.6}, {~RGB"#d9730d", 0.4}])
       assert_rgb(literal(value), expected)
     end
 
     @tag verifies: "color-typed-transforms"
     test "a color without intensity counts as 1" do
-      value = blend(["#3b6fa8", intensity("#d9730d", 0.5), intensity("#2f8f86", 0.5)])
-      expected = ref_mix([{"#3b6fa8", 0.5}, {"#d9730d", 0.25}, {"#2f8f86", 0.25}])
+      value = blend([~RGB"#3b6fa8", intensity(~RGB"#d9730d", 0.5), intensity(~RGB"#2f8f86", 0.5)])
+      expected = ref_mix([{~RGB"#3b6fa8", 0.5}, {~RGB"#d9730d", 0.25}, {~RGB"#2f8f86", 0.25}])
       assert_rgb(literal(value), expected)
     end
 
     @tag verifies: "color-typed-transforms"
     test "alpha is premultiplied: a transparent color adds weight but no hue" do
-      assert_rgb(literal(blend([alpha("#ff0000", 0), "#0000ff"])), [0, 0, 255], 0.5)
+      assert_rgb(literal(blend([alpha(~RGB"#ff0000", 0), ~RGB"#0000ff"])), [0, 0, 255], 0.5)
     end
 
     @tag verifies: "color-typed-transforms"
     test "a blend of nothing is transparent, and of one color is that color" do
-      assert channels(literal(blend([intensity("#ff0000", 0)]))) |> elem(3) == 0.0
-      assert literal(blend(["#3b6fa8"])) == "#3b6fa8"
+      assert channels(literal(blend([intensity(~RGB"#ff0000", 0)]))) |> elem(3) == 0.0
+      assert literal(blend([~RGB"#3b6fa8"])) === ~RGB"#3b6fa8"
     end
 
     @tag verifies: "color-typed-transforms"
@@ -292,39 +317,45 @@ defmodule Macaw.Layers.Theme.TypedTest do
   describe "alpha, lighten, darken and saturate in OKLCH" do
     @tag verifies: "color-typed-transforms"
     test "alpha sets the opacity, whatever it was" do
-      assert literal(alpha("#3b6fa8", 0.25)) == "#3b6fa840"
-      assert literal(alpha(intensity("#3b6fa8", 0.5), 0.8)) == "#3b6fa8cc"
-      assert literal(alpha(alpha("#3b6fa8", 0.1), 1)) == "#3b6fa8"
+      assert literal(alpha(~RGB"#3b6fa8", 0.25)) === ~RGB"#3b6fa840"
+      assert literal(alpha(intensity(~RGB"#3b6fa8", 0.5), 0.8)) === ~RGB"#3b6fa8cc"
+      assert literal(alpha(alpha(~RGB"#3b6fa8", 0.1), 1)) === ~RGB"#3b6fa8"
     end
 
     @tag verifies: "color-typed-transforms"
     test "lighten moves L toward 1 and darken toward 0, hue and chroma kept" do
-      [l, c, h] = to_lch(ref_oklab("#3b6fa8"))
-      assert_rgb(literal(lighten("#3b6fa8", 0.2)), ref_rgb(from_lch([l + (1 - l) * 0.2, c, h])))
-      assert_rgb(literal(darken("#3b6fa8", 0.3)), ref_rgb(from_lch([l * 0.7, c, h])))
+      [l, c, h] = to_lch(ref_oklab(~RGB"#3b6fa8"))
+
+      assert_rgb(
+        literal(lighten(~RGB"#3b6fa8", 0.2)),
+        ref_rgb(from_lch([l + (1 - l) * 0.2, c, h]))
+      )
+
+      assert_rgb(literal(darken(~RGB"#3b6fa8", 0.3)), ref_rgb(from_lch([l * 0.7, c, h])))
     end
 
     @tag verifies: "color-typed-transforms"
     test "saturate moves chroma toward 0.4, CSS's 100%" do
-      [l, c, h] = to_lch(ref_oklab("#8a6a4f"))
+      [l, c, h] = to_lch(ref_oklab(~RGB"#8a6a4f"))
 
       assert_rgb(
-        literal(saturate("#8a6a4f", 0.1)),
+        # saturate/2 of a literal keeps its §1.2 meaning; the transform is the tuple.
+        literal({:saturate, ~RGB"#8a6a4f", 0.1}),
         ref_rgb(from_lch([l, c + (0.4 - c) * 0.1, h]))
       )
     end
 
     @tag verifies: "color-typed-transforms"
     test "the ends: lighten and darken by 1 are white and black" do
-      assert literal(lighten("#3b6fa8", 1)) == "#ffffff"
-      assert literal(darken("#3b6fa8", 1)) == "#000000"
+      assert literal(lighten(~RGB"#3b6fa8", 1)) === ~RGB"#ffffff"
+      assert literal(darken(~RGB"#3b6fa8", 1)) === ~RGB"#000000"
     end
 
     @tag verifies: "color-typed-transforms"
     test "a result outside sRGB is gamut-mapped by chroma, keeping lightness and hue" do
-      mapped = literal(saturate("#3b6fa8", 1))
-      before = Color.to_oklch(Color.parse("#3b6fa8"))
-      after_ = Color.to_oklch(Color.parse(mapped))
+      mapped = literal({:saturate, ~RGB"#3b6fa8", 1})
+      before = Color.to_oklch(~RGB"#3b6fa8")
+      after_ = Color.to_oklch(mapped)
       assert_in_delta after_.l, before.l, 0.02
       # Clipping the last step moves hue a little; within a few degrees it is the same hue.
       assert_in_delta after_.h, before.h, 6
@@ -336,20 +367,20 @@ defmodule Macaw.Layers.Theme.TypedTest do
     @tag verifies: "color-typed-transforms"
     test "the theme's ink over the color, as Macaw.Layers.Theme.ink/2 chooses it" do
       theme = Theme.default()
-      assert literal(contrast("#3b6fa8")) == Theme.ink(theme, "#3b6fa8")
-      assert literal(contrast(color(:axis))) == Theme.ink(theme, "#666666")
-      assert literal(contrast("#ffd098")) == "#333333"
+      assert literal(contrast(~RGB"#3b6fa8")) == Theme.ink(theme, ~RGB"#3b6fa8")
+      assert literal(contrast(color(:axis))) == Theme.ink(theme, ~RGB"#666666")
+      assert literal(contrast(~RGB"#ffd098")) === ~RGB"#333333"
     end
 
     @tag verifies: "color-typed-transforms"
     test "a translucent color is read over the background" do
-      assert literal(contrast("#000000")) == "#ffffff"
-      assert literal(contrast(intensity("#000000", 0.05))) == "#333333"
+      assert literal(contrast(~RGB"#000000")) === ~RGB"#ffffff"
+      assert literal(contrast(intensity(~RGB"#000000", 0.05))) === ~RGB"#333333"
     end
 
     @tag verifies: "color-typed-transforms"
     test "it is a literal in both modes" do
-      assert Color.resolve(contrast("#000000"), Theme.default(), :css) == "#ffffff"
+      assert Color.resolve(contrast(~RGB"#000000"), Theme.default(), :css) == "#ffffff"
     end
   end
 
@@ -364,20 +395,38 @@ defmodule Macaw.Layers.Theme.TypedTest do
     end
 
     @tag verifies: "color-css-agrees"
-    test "a series and a ramp position resolve as the theme's, a literal as written" do
+    test "a series and a ramp position resolve as the theme's, a literal as itself" do
       theme = Theme.default()
 
       assert Color.resolve({:series, 12}, theme, :css) ==
                Theme.resolve(theme, {:series, 12}, :css)
 
       assert Color.resolve(ramp(:status, 1), theme, :css) == "var(--mw-bad, #c23238)"
-      assert Color.resolve("currentColor", theme, :css) == "currentColor"
+      assert Color.resolve(~RGB"#3b6fa8", theme, :literal) === ~RGB"#3b6fa8"
+      assert Color.resolve(~RGB"#3b6fa880", theme, :css) == "#3b6fa880"
+
+      assert Color.resolve(Color.rgb(59.5, 111, 168), theme, :css) ==
+               "rgb(59.5 111.0 168.0 / 1.0)"
+
+      # Text is no color value, in either mode.
+      for mode <- [:css, :literal] do
+        assert_raise ArgumentError, ~r/not a color value/, fn ->
+          Color.resolve("currentColor", theme, mode)
+        end
+      end
     end
 
     @tag verifies: "color-typed-transforms"
     test "an operand that is no color a transform can compute raises" do
+      assert_raise ArgumentError, ~r/"currentColor" is text, and a string is never a color/, fn ->
+        alpha("currentColor", 0.5)
+      end
+
+      # A theme written by hand, the escape hatch, may hold text where a color belongs.
+      odd = %{Theme.default() | text: "currentColor"}
+
       assert_raise ArgumentError, ~r/must resolve to a color/, fn ->
-        literal(alpha("currentColor", 0.5))
+        Color.resolve(alpha(color(:text), 0.5), odd, :literal)
       end
     end
   end

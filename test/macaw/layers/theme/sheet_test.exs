@@ -2,6 +2,8 @@ defmodule Macaw.Layers.Theme.SheetTest do
   # A theme compiled to a stylesheet (spec/04 §6).
   use ExUnit.Case, async: true
 
+  import Macaw.Layers.Color, only: [sigil_RGB: 2]
+
   alias Macaw.Layers.Theme
   alias Macaw.Layers.Theme.Sheet
 
@@ -38,7 +40,7 @@ defmodule Macaw.Layers.Theme.SheetTest do
     house =
       Theme.new(
         name: :house_brand,
-        colors: %{brand: "#123456", red: %{500 => "#d62728", 100 => "#fde8e8"}}
+        colors: %{brand: ~RGB"#123456", red: %{500 => ~RGB"#d62728", 100 => ~RGB"#fde8e8"}}
       )
 
     css = Sheet.rule(house)

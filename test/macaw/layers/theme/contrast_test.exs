@@ -9,10 +9,9 @@ defmodule Macaw.Layers.Theme.ContrastTest do
 
   @themes [Theme.default(), Theme.dark()]
 
-  defp contrast(hex, %Theme{background: background}) do
-    color = Color.parse(hex)
-    assert color, "#{hex} does not parse"
-    Color.contrast(color, Color.parse(background))
+  defp contrast(color, %Theme{background: background}) do
+    assert Color.literal?(color), "#{inspect(color)} is not a literal color"
+    Color.contrast(color, background)
   end
 
   for theme <- @themes do
@@ -26,7 +25,9 @@ defmodule Macaw.Layers.Theme.ContrastTest do
 
       for color <- @theme.series do
         ratio = contrast(color, @theme)
-        assert ratio >= 3.0, "#{color} is #{Float.round(ratio, 2)}:1 on #{@theme.name}"
+
+        assert ratio >= 3.0,
+               "#{Color.to_css(color)} is #{Float.round(ratio, 2)}:1 on #{@theme.name}"
       end
     end
   end

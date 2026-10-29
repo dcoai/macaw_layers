@@ -88,14 +88,14 @@ lab of to_lab is the color and a gray has a and b zero; OKLab of the sRGB primar
 
 ### 1.3 Typed colors and their transforms {#themes-color-typed}
 
-A document names a color as a **typed value**, never a bare atom; the values are plain data, built by functions that check their arguments and compile nothing, and resolved against a theme (§3.1), so a theme swap changes every color derived from the theme's colors.
+A document names a color as a **typed value**, never a bare atom; the values are plain data, built by functions that check their arguments and compile nothing, and resolved against a theme (§3.1), so a theme swap changes every color derived from the theme's colors. **A literal is the term `%Macaw.Layers.Color{}`** of §1.1, **never a string**: CSS text is an encoding, read into a literal at the edge (`parse!/1`, `~RGB`, §1.6) before it is a color.
 
 | Value | Built by | Meaning |
 |---|---|---|
 | `{:color, name}` | `color(name)` | the color `name` of the theme's color table (§2.2) |
 | `{:series, i}` | `series(i)` | the i-th series color, cycling |
 | `{:ramp, name, t}` | `ramp(name, t)` | the color at `t` along one of the theme's ramps (§2.3) |
-| a string | — | a literal CSS color, as written (allowed by the `:open` profile alone, §4) |
+| `%Macaw.Layers.Color{}` | `parse!/1`, `~RGB"…"`, `rgb/4` … | a literal color, itself (allowed by the `:open` profile alone, §4) |
 | `{:intensity, c, t}` | `intensity(c, t)` | how much of `c` is present; the rest is transparent |
 | `{:blend, [c, …]}` | `blend(list)` | the colors mixed in OKLab, each weighted by its intensity |
 | `{:alpha, c, a}` | `alpha(c, a)` | `c` at opacity `a` |
@@ -104,7 +104,7 @@ A document names a color as a **typed value**, never a bare atom; the values are
 | `{:contrast, :under}` | `contrast()` | the readable ink over whatever the text is drawn on |
 | `{:shade, c, n}` | `shade(c, n)` | the step `n` of `c`'s scale, from 0 (near white) through 500 (`c` itself) to 1000 (near black); a step the theme pins is the pinned color |
 
-**Each helper takes the color first, and every number is in `0..1`** (a shade's step in `0..1000`), so colors pipe: `[color(:blue) |> intensity(0.65), color(:red) |> intensity(0.3)] |> blend() |> alpha(0.65)`. A helper raises `ArgumentError` for a number outside its range, an operand that is not a color value, a name that is not an atom or a string (`nil`, `true` and `false` are not names), or an empty `blend`; it does not check that a name exists, which is the theme's to resolve. `saturate/2` on a `%Color{}` keeps §1.2's meaning; on a color value it builds the transform. `value?/1` is whether a term is a color value of the table, operands included.
+**Each helper takes the color first, and every number is in `0..1`** (a shade's step in `0..1000`), so colors pipe: `[color(:blue) |> intensity(0.65), color(:red) |> intensity(0.3)] |> blend() |> alpha(0.65)`. A helper raises `ArgumentError` for a number outside its range, an operand that is not a color value, a name that is not an atom or a string (`nil`, `true` and `false` are not names), or an empty `blend`; it does not check that a name exists, which is the theme's to resolve. Text given as an operand raises naming the edges that read it (`parse!/1`, `~RGB`). `saturate/2` on a `%Color{}` keeps §1.2's meaning; on any other color value it builds the transform, so the transform of a literal is written as its tuple, `{:saturate, literal, t}`. `value?/1` is whether a term is a color value of the table, operands included: a literal is one where `literal?/1` holds, so a string, and a struct written by hand with integer fields, are not; `value?("good")` and `value?("#fff")` are false.
 
 **The transforms, exactly**, every computation in OKLab:
 - **`intensity(c, t)`** alone is `c` with its alpha multiplied by `t`, as `color-mix(in oklab, c t%, transparent)` is.
@@ -129,14 +129,14 @@ A document names a color as a **typed value**, never a bare atom; the values are
   **A theme may pin steps** of a name (§2.2), and a shade of a pinned name reads them. A shade of any other color is computed.
 
 ```test:color-typed-transforms
-each builder makes its value and refuses an out-of-range number, a non-color operand, a non-name and an empty blend; each transform equals the value computed independently through CSS Color 4's XYZ route; a blend follows color-mix's weights, premultiplied, its remainder transparent
+each builder makes its value and refuses an out-of-range number, a non-color operand, text, a non-name and an empty blend; value? holds of every tree with %Color{} leaves and of none with a string leaf; each transform equals the value computed independently through CSS Color 4's XYZ route; a blend follows color-mix's weights, premultiplied, its remainder transparent
 ```
 
 ### 1.4 Resolution and CSS {#themes-color-resolve}
 
-`Color.resolve(value, theme, mode)` resolves a color value in `:literal` or `:css` mode:
-- **Names and positions:** a name, a series position, a ramp position and a bare slot atom resolve as `Theme.resolve/3` resolves them (§3.1). A literal string is returned as written.
-- **Transforms in `:literal`:** a transform is computed to a literal, `#rrggbb` (or `#rrggbbaa` below full opacity). Its operands are resolved as literals first, and an operand `parse/1` cannot read raises `ArgumentError`.
+`Color.resolve(value, theme, mode)` resolves a color value in `:literal` or `:css` mode. `:literal` answers a literal `%Color{}`; `:css` answers CSS text, a literal written by `to_css/1` (§1.6):
+- **Names and positions:** a name, a series position, a ramp position and a bare slot atom resolve as `Theme.resolve/3` resolves them (§3.1). A literal is itself under `:literal`, and its `to_css/1` text under `:css`. A term that is no color value, text included, raises `ArgumentError`.
+- **Transforms in `:literal`:** a transform is computed to a literal **quantized to 8 bits**, its channels and its alpha each a whole number of 255ths, exactly the color its hex `#rrggbb` (or `#rrggbbaa` below full opacity) names. Its operands are resolved as literals first, and an operand that resolves to no literal (a theme built by hand holding text) raises `ArgumentError`.
 - **Transforms in `:css`:** a transform is written as CSS, so a stylesheet's theme switch carries through every derived color without a re-render. Each operand is written in its own `:css` form, a name as `var(--mw-red, #c23238)`:
 
   | Transform | CSS |
@@ -147,7 +147,7 @@ each builder makes its value and refuses an out-of-range number, a non-color ope
   | `lighten(c, t)` | `oklch(from C calc(l + (1 - l) * t) c h / alpha)` |
   | `darken(c, t)` | `oklch(from C calc(l * k) c h / alpha)`, `k = 1 − t` |
   | `saturate(c, t)` | `oklch(from C l calc(c + (0.4 - c) * t) h / alpha)` |
-  | `contrast(c)`, `contrast()` | the ink's literal (visualize D-123) |
+  | `contrast(c)`, `contrast()` | the ink's literal, as its CSS text (visualize D-123) |
   | `shade(color(name), n)`, `n` pinned | `var(--mw-<name>-<n>, literal)`, a property the sheet declares |
   | `shade(c, n)` toward white / black | `oklch(from C calc(l + (0.97 - l) * u) calc(c * k) h / alpha)` / `oklch(from C calc(l - (l - 0.2) * u) calc(c * k) h / alpha)`, `u` and `k = 1 − u²` as numbers |
   | `shade(c, 500)` | `C` |
@@ -218,8 +218,8 @@ the $rgb payload encode_value writes of any literal decodes to that literal, as 
 `%Macaw.Layers.Theme{name, series, axis, grid, text, background, surface, ramps, colors, styles, defaults, font_family, font_size, label_size, title_size, dark, light, extensions}`:
 
 - **`name`** — the theme's name. A built-in theme's is an atom (`:default`, `:dark`, `:color_safe`, `:print`); a host's is its string (`name: :house` is held as `"house"`), so a theme built in Elixir and the one its document reads are one value.
-- **`series`** — a non-empty list of at most 64 color strings, far past the categories a reader can tell apart by color; the slots `:series_1` … `:series_64` are the library's atoms, written out, so none is made from a document.
-- **`axis`, `grid`, `text`, `background`, `surface`** — the **furniture**, color strings.
+- **`series`** — a non-empty list of at most 64 literal colors, far past the categories a reader can tell apart by color; the slots `:series_1` … `:series_64` are the library's atoms, written out, so none is made from a document.
+- **`axis`, `grid`, `text`, `background`, `surface`** — the **furniture**, literal colors.
 - **`ramps`** — each ramp name of §2.3 to its anchors.
 - **`colors`** — the theme's own part of its color table (§2.2).
 - **`styles`** — each palette name of §2.4 to its entry.
@@ -228,7 +228,7 @@ the $rgb payload encode_value writes of any literal decodes to that literal, as 
 - **`dark` and `light`** — the built-in theme that stands for this one in the viewer's dark or light color scheme, or `nil` (§6).
 - **`extensions`** — the registered extensions (§3.4), `[]` by default.
 
-Every field is plain data, so a theme is stored and compared as a value. **Names are the library's atoms or strings:** a key or an atom value of a palette entry or of `defaults` outside the library's vocabulary (`Macaw.Layers.Theme.Words`: the fields, the style parts and their keys, the built-in palette's values and names) is held by its string, as a color a theme adds is, so a theme built in Elixir and the theme its document reads are one value and no atom is made from a document.
+Every field is plain data, so a theme is stored and compared as a value. **Its colors are terms:** every color it holds — the series, the furniture, the ramps' anchors, the entries of `colors` and their pinned steps, and the paint colors of `styles` — is a literal `%Macaw.Layers.Color{}` (§1.1) or a typed color of §1.3 with literal leaves, **never a string**. `new/1` and `merge/2` raise `ArgumentError` for text where a color belongs, naming the field and the edges that read text (`Theme.new(axis: "#555")` raises `theme :default: axis "#555" is text, and a string is never a color: read it with Macaw.Layers.Color.parse!/1, or write ~RGB"#555"`), and for any other term there that is no literal. Compare two literals with `===` or by digest where identity matters: a struct written by hand with integer fields is `==` to the canonical one but is no literal (§1.1). **Names are the library's atoms or strings:** a key or an atom value of a palette entry or of `defaults` outside the library's vocabulary (`Macaw.Layers.Theme.Words`: the fields, the style parts and their keys, the built-in palette's values and names) is held by its string, as a color a theme adds is, so a theme built in Elixir and the theme its document reads are one value and no atom is made from a document.
 
 A **slot** names one value of a theme:
 
@@ -246,6 +246,10 @@ A **slot** names one value of a theme:
 slots lists the series then the furniture, roles and font slots in order; series positions cycle; an unknown slot or a series slot beyond the palette raises
 ```
 
+```test:themes-colors-terms
+new raises for text in the series, the furniture, a colors entry, a pinned step, a ramp anchor or a style's paint color, naming parse!/1 and ~RGB, and for a struct that is no literal; Theme.new(axis: "#555") raises with the message
+```
+
 ### 2.2 The color table {#themes-color-table}
 
 Every color a document names with `color(name)` is looked up in the theme's **color table**, in this order:
@@ -254,11 +258,11 @@ Every color a document names with `color(name)` is looked up in the theme's **co
 3. the colors the theme's extensions add (§3.4);
 4. the **CSS named colors** (§1.1).
 
-The furniture and `:series_1` … `:series_n` are names of the table too, read from their fields. A theme may change any value, and add names, by its string (`colors: %{brand: …}` is held under `"brand"`). A name is found in the table by either spelling, and must be lower-case letters, digits and `_`, starting with a letter. A value is a color string, or a color value of §1.3 that resolves through the same theme (`{:ramp, :status, 1}`).
+The furniture and `:series_1` … `:series_n` are names of the table too, read from their fields. A theme may change any value, and add names, by its string (`colors: %{brand: …}` is held under `"brand"`). A name is found in the table by either spelling, and must be lower-case letters, digits and `_`, starting with a letter. A value is a literal color, or a color value of §1.3 that resolves through the same theme (`{:ramp, :status, 1}`); text is refused, naming the edges that read it. A CSS named color is the table's literal of its keyword (`color(:steelblue)` is `parse!("steelblue")`).
 
-**A theme may pin steps** of a name: `colors: %{red: %{500 => "#d62728", 100 => "#fde8e8"}}`, a map of integer steps in `0..1000` with 500 among them to color strings. Step 500 is the name's own color, and a step not pinned is computed on §1.3's curve. A pinned entry without step 500, with a step outside `0..1000` or not an integer, or with a value that is no color string, is refused.
+**A theme may pin steps** of a name: `colors: %{red: %{500 => ~RGB"#d62728", 100 => ~RGB"#fde8e8"}}`, a map of integer steps in `0..1000` with 500 among them to literal colors. Step 500 is the name's own color, and a step not pinned is computed on §1.3's curve. A pinned entry without step 500, with a step outside `0..1000` or not an integer, or with a value that is no literal color, text included, is refused.
 
-The built-in themes' own `colors`:
+The built-in themes' own `colors`, each a literal written here by its hex:
 
 | Name | `default/0` | `dark/0` |
 |---|---|---|
@@ -277,7 +281,7 @@ a name resolves from the theme's colors, then the default's, then an extension's
 
 A palette position promises *distinct*, never a meaning. Colors that carry meaning a reader brings with them — the stop-light, cold and hot, below and above a target — are carried as **ramps**, whose meaning the library fixes and whose tones the theme tunes (visualize D-135).
 
-**A ramp** is two or more anchors (a color string, a name of the table, or a transform of those, measured as the literal it computes), evenly spaced along `0..1`, the color at `t` interpolated between its two neighbors in **CIE Lab**. A position on an anchor is that anchor as written. Four ramps, each with its **contract**:
+**A ramp** is two or more anchors (a literal color, a name of the table, or a transform of those, measured as the literal it computes; text is no anchor), evenly spaced along `0..1`, the color at `t` interpolated between its two neighbors in **CIE Lab**, a literal `%Color{}` (`interpolate_lab/3`). A position on an anchor is that anchor's literal. Four ramps, each with its **contract**:
 
 | Ramp | Meaning | Contract |
 |---|---|---|
@@ -326,7 +330,7 @@ ramp interpolates in Lab between evenly spaced anchors and clamps t; each built-
 
 A theme chooses only how many style series it has, at most 64 with no gap, and how each entry looks. **It cannot add a name**: the names are the library's and its registered extensions' (§3.4), so a document that names one reads the same on every theme.
 
-**An entry is a style node in parts, written in slots:** its keys are the parts `fill`, `stroke`, `font`, `text`, `effect`, `marker`, `curve`, and `opacity`, `blend` and `class`. Its colors are typed values or slots, never literals where a slot says the same (`fill: %{type: :solid, color: {:color, :bad}}`, `stroke: %{type: :solid, color: {:series, 3}, width: 1.5}`, `font: %{size: :label_size}`). A bare atom in a color position is the typed color it names. In a role's entry, `stroke: %{dash: :cue}` and `marker: %{shape: :cue}` take the role's cue. An entry may be **a list** of palette names and nodes, stacked left to right. It may not use `extends`: the palette is the end of every chain. Entries may be partial: a state or a modifier gives a few keys.
+**An entry is a style node in parts, written in slots:** its keys are the parts `fill`, `stroke`, `font`, `text`, `effect`, `marker`, `curve`, and `opacity`, `blend` and `class`. Its colors are typed values or slots, never literals where a slot says the same, and never text (a string paint color is refused, §2.6) (`fill: %{type: :solid, color: {:color, :bad}}`, `stroke: %{type: :solid, color: {:series, 3}, width: 1.5}`, `font: %{size: :label_size}`). A bare atom in a color position is the typed color it names. In a role's entry, `stroke: %{dash: :cue}` and `marker: %{shape: :cue}` take the role's cue. An entry may be **a list** of palette names and nodes, stacked left to right. It may not use `extends`: the palette is the end of every chain. Entries may be partial: a state or a modifier gives a few keys.
 
 **The built-in palette**, the same entries on every built-in theme, each taking that theme's colors:
 
@@ -360,6 +364,8 @@ the built-in palette gives every entry of the table on every built-in theme; sty
 
 ### 2.5 The built-in themes {#themes-builtins}
 
+Every color below is a literal `%Color{}`, written here by its hex and in the source by `~RGB`: the values, the resolution of every slot and name, the stylesheet and the answers of `check/1` and `floors/1` are those of the themes that held them as text (v0.2.4).
+
 | Field | `default/0` | `dark/0` |
 |---|---|---|
 | `series` | `#3b6fa8 #d9730d #c8373b #2f8f86 #3f8a37 #a8891a #8f5f99 #c9527f #8a6a4f #6f7480` | `#7fb3e6 #f7a35c #f47c7c #6fd3c8 #86d67c #f2d15b #c99bd6 #ffb3c1 #cfa98b #b7bcc6` |
@@ -384,6 +390,10 @@ the built-in palette gives every entry of the table on every built-in theme; sty
 each built-in theme has the table's values and pairs default with dark; color_safe and print change exactly what the section says; new and merge replace fields and merge ramps, colors, styles and defaults by key; an unknown field and an empty series raise
 ```
 
+```test:themes-colors-goldens
+every slot, name, series and ramp position of every built-in and of a host theme resolves to parse! of its v0.2.4 hex and its CSS to v0.2.4's; their stylesheet is v0.2.4's byte for byte; check, violations and floors answer as on v0.2.4
+```
+
 ### 2.6 Contracts and contrast {#themes-contracts}
 
 **Contracts are checked when a theme is built:** `new/1` and `merge/2` check every ramp, color and palette entry, and raise `ArgumentError` naming the theme, the subject and the term it breaks:
@@ -401,6 +411,7 @@ each built-in theme has the table's values and pairs default with dark; color_sa
   - their colors are at least ΔEOK 0.02 apart;
   - a solid fill or stroke reaches **3:1** against the background (WCAG 1.4.11), and an entry with a font part has its fill reach **4.5:1** (WCAG 1.4.3). A translucent color is laid over the background first, and a refusal names the part, the color, the ratio and the rule.
 - **Every color name resolves** in the table.
+- **A paint's color is no text:** a `fill` or `stroke` whose `color` is a string is refused, naming the edges that read it.
 - **A state style is distinguishable without hue:** it changes stroke width, outline, opacity, dash or effect, never only a color.
 - **Neighboring style series differ in more than hue,** the last and the first included.
 - **A text furniture entry resolves a font family and size.**
@@ -428,10 +439,10 @@ every built-in theme meets the floors and every contract; floors refuses text un
 ### 3.1 Resolution {#themes-resolution}
 
 `resolve(theme, slot_or_name, mode)` is the one door through which anything reads a theme:
-- **`:literal`:** the value as stored, a color or font string or a size number. A canvas and a PNG resolve this way.
-- **`:css`:** a custom-property reference with the literal as its fallback: `var(--mw-axis, #666666)`, `var(--mw-series-3, #c8373b)`, `var(--mw-font-size, 10px)` (a size gains `px`). This is what an SVG or HTML output carries.
+- **`:literal`:** the value as stored: a color a literal `%Color{}`, a font a string, a size a number. A canvas and a PNG resolve this way.
+- **`:css`:** a custom-property reference with the literal as its fallback, a color written by `to_css/1` (§1.6): `var(--mw-axis, #666666)`, `var(--mw-series-3, #c8373b)`, `var(--mw-font-size, 10px)` (a size gains `px`). This is what an SVG or HTML output carries.
 - **Roles and names:** a role, and a name of the table, resolve the same way, `:red` to `var(--mw-red, #c23238)`. A name in no part of the table raises `ArgumentError`.
-- **Ramp positions:** `{:ramp, name, t}` is a **literal in both modes** (CSS has no property per position), except the status roles' positions, which resolve as the roles. `t` is clamped, and a ramp name not of §2.3 raises.
+- **Ramp positions:** `{:ramp, name, t}` is a **literal in both modes** (CSS has no property per position), its `to_css/1` text under `:css`, except the status roles' positions, which resolve as the roles. `t` is clamped, and a ramp name not of §2.3 raises.
 
 `css_name/1` is `--mw-` and the name with `_` as `-` (`:series_1` → `--mw-series-1`).
 
@@ -443,10 +454,10 @@ resolve gives a literal or a var reference with the literal fallback for every s
 
 ### 3.2 The contrast ink {#themes-ink}
 
-`ink(theme, under)` (visualize D-123) is the color a text drawn on `under` takes: the theme's `text` or `background`, whichever contrasts more with `under` (`text` on a tie), **always as a literal**. When the better of the two is under 4.5:1, it is `#000000` or `#ffffff` instead, one of which always reaches 4.58:1 or better. `under` is a color string, a `%Color{}`, or `nil` for the theme's background. A string that does not parse is `nil`, and a slot whose own value does not parse is skipped. It is a literal because the choice is made between literals: a re-pointed custom property would undo it.
+`ink(theme, under)` (visualize D-123) is the color a text drawn on `under` takes: the theme's `text` or `background`, whichever contrasts more with `under` (`text` on a tie), **always as a literal `%Color{}`**. When the better of the two is under 4.5:1, it is black or white instead, one of which always reaches 4.58:1 or better. `under` is a literal `%Color{}`, or `nil` for the theme's background; text raises `ArgumentError` naming the edges that read it, as any other term does. A slot that holds no literal, in a struct written by hand, is skipped. It is a literal because the choice is made between literals: a re-pointed custom property would undo it.
 
 ```test:themes-ink-aa
-ink chooses text or background by contrast, text on a tie, and black or white when neither reaches 4.5:1, so the ink always meets 4.5:1; nil is the background and an unreadable color is nil
+ink chooses text or background by contrast, text on a tie, and black or white when neither reaches 4.5:1, so the ink always meets 4.5:1, a literal; nil is the background, text under it raises, and a slot holding no literal is skipped
 ```
 
 ### 3.3 Precedence {#themes-precedence}
@@ -471,7 +482,7 @@ a document's palette entry beats the theme's, the theme's the default's and the 
 |---|---|
 | `name() :: String.t()` | the extension's name, for faults |
 | `styles() :: %{atom => {group, entry}}` | palette names it adds, each in a group of §2.4 (`:state`, `:furniture`, `:modifier`), with its default entry |
-| `colors() :: %{atom => color}` | names it adds to the color table, each with a default value |
+| `colors() :: %{atom => color}` | names it adds to the color table, each with a default value: a color value of §1.3, a literal `%Color{}` or a typed color, or pinned steps of literals; text raises `ArgumentError` naming the extension |
 
 A theme carries its extensions in `extensions`, given explicitly (`new(extensions: [MyApp.Marks])`). The list is **default closed**: a palette name or color name that neither the library nor an extension has is a fault naming it. The names an extension adds are held to the contracts of their group, its default entries included: a state's, a modifier's, and a furniture entry's as text furniture's when it has a font part and as the grid's otherwise. An extension's names follow the library's in `style_names/1` and `color_names/1`, and a document names them by spelling. Two extensions adding one name, an extension adding a library name, or a style in another group, raise `ArgumentError` naming both.
 
@@ -483,19 +494,21 @@ a registered extension's names are in the palette and the table with their defau
 
 - **Drawing colors are theme roles and tokens, and values derived from them** (`lighten(:warning)`), so contrast is checked on the theme (metresis.md C3).
 - **Literal colors are a profile's.** `Theme.check_color(value, profile)` answers `:ok` or `{:error, {:literal_color, value}}`:
-  - under **`:roles`**, the profile every Macaw page validates against, a color value whose leaves include a literal string is refused;
+  - under **`:roles`**, the profile every Macaw page validates against, a color value whose leaves include a literal `%Color{}` is refused;
   - under **`:open`**, an adopter's standalone default (visualize's), literals are allowed.
+
+  A term that is no color value, text included, raises `ArgumentError` under either profile: a string is never a color.
 
   The profile is the host's authority: nothing derives it.
 - **Data colors are typed content.** A `:color` column or a schema's value color (a team's color) is shown only with a non-color cue (a glyph, a label or a dash), which is the component's obligation, and under a **contrast guard**. `Theme.data_color(theme, value)` is:
-  - `{:ok, literal}` where the color reaches 3:1 against the theme's background;
+  - `{:ok, literal}`, the literal `%Color{}` it resolves to, where the color reaches 3:1 against the theme's background;
   - `{:error, {:contrast, ratio}}` otherwise;
-  - `{:error, :unreadable}` for a value that does not resolve.
+  - `{:error, :unreadable}` for a term that is no color value, text included, or does not resolve; it never raises, since a data color comes from data.
 
   A data color is never the sole carrier of meaning (macaw_data spec/01 §1; macaw_compose#22, decision 7; visualize D-233).
 
 ```test:themes-profile-colors
-under roles a literal anywhere in a color value is refused and every typed value passes; under open both pass; a data color under 3:1 against the background is refused with its ratio and one that reaches it is its literal
+under roles a literal anywhere in a color value is refused and every typed value passes; under open both pass; text raises under both; a data color under 3:1 against the background is refused with its ratio, one that reaches it is its literal, and text is unreadable
 ```
 
 ## 5. A theme as a document {#themes-document}
@@ -505,9 +518,11 @@ A theme is stored and shipped as a value, so it is a **document** (spec/01): `Ma
 | Form | What |
 |---|---|
 | value | `%{version: v, theme: node}` (`to_map/1`); the store's fragment `%{theme: node}` (`fragment/1`), a library entry of kind `:theme`, reads as the same document; every name in `ramps`, `colors`, `styles` and `defaults` a string |
-| JSON | `{"$version": v, "theme": {…}}` (`to_json/1`, through the JSON adapter, `Form.to_json/2`), each color value a tag: a literal color `{"$rgb": …}` (§1.6), `{"$color": name}`, `{"$series": i}`, `{"$ramp": [name, t]}`, each transform by its name with `[color, number]` (`{"$lighten": [C, 0.3]}`), `{"$blend": [C, …]}`, `{"$contrast": "under" \| C}`; pinned steps as `{"$steps": [[n, color], …]}` |
+| JSON | `{"$version": v, "theme": {…}}` (`to_json/1`, through the JSON adapter, `Form.to_json/2`), each color a tag: a literal color `{"$rgb": …}` (§1.6), `{"$color": name}`, `{"$series": i}`, `{"$ramp": [name, t]}`, each transform by its name with `[C, number]` (`{"$lighten": [C, 0.3]}`), `{"$blend": [C, …]}`, `{"$contrast": "under" \| C}`; pinned steps as `{"$steps": [[n, C], …]}`; each `C` a color's own tag, a literal's `$rgb`, never a bare string |
 
 `from_map(document, opts)` takes `extensions:`, the extensions the host registers, which the theme read carries and its contracts hold; `from_json(json, opts)` takes `extensions:` and `limits:`, the JSON adapter's (spec/01 §5). A style series a document spells beyond the built-in ten reads as its name up to `style_64`, and a `series` longer than 64 is `{:limit, :series, 64, n}`.
+
+**The version line is at 2** (`current/0`). Version 1 wrote a literal as CSS text; its **step to 2** (spec/01 §4) tags each string at a color position of the map form that `parse/1` reads as the literal's `$rgb` (`ColorForm.encode_value/1`): each `series` entry; the furniture `axis`, `grid`, `text`, `background` and `surface`; each ramp's anchors; each entry of `colors`; each value of a `$steps`; the operand of each transform (`$intensity`, `$alpha`, `$lighten`, `$darken`, `$saturate`, `$shade`), of `$contrast` but `"under"` and each color of a `$blend`, at any depth; and the `color` of each `fill` and `stroke` of a style node, in a list entry too. A string it does not read is left as it is, for the reader to refuse at its path; a name in a list entry, a node that is a theme's name, `defaults` and every other key are not color positions. So a version 1 document reads to the same theme, and a bundle's entry of one does too, since a bundle migrates each entry by its type (spec/03 §3.2).
 
 **Fragment rules:** `ramps`, `colors`, `styles` and `defaults` are `:union` name maps, and every other key is `:override`, so a theme stacks over a built-in as `new/1` merges (§2.5).
 
@@ -516,7 +531,7 @@ A theme is stored and shipped as a value, so it is a **document** (spec/01): `Ma
 **Reading.** A theme document is judged on its value, never on a form of it (spec/01 §5):
 1. **the value's way in:** `from_map/2` checks the value's `version` against the line (`{[], {:newer_schema, needs, this}}`, or `{["$version"], {:type, :pos_integer}}`), nothing of a newer document judged, and writes and reads no form; `from_json/2` reads the JSON form through the JSON adapter (`Form.read/3`): the limits, the version, the migration, the recount, then the value from the map form;
 2. the envelope, by the type's `validate/1` (`Document.check/2`): a key beside `theme` is `:unknown_key`, and a missing `theme` `:required`;
-3. a variable anywhere in the node, and then the theme's fields, each of its shape: an unknown key `:unknown_key`, a `series` that is not a non-empty list of strings, furniture and `font_family` that are not strings `{:type, :string}`, sizes that are not positive numbers `{:type, :pos_number}`, `ramps`, `colors`, `styles` and `defaults` that are not maps `{:type, :map}`, a counterpart that is no built-in `{:unknown_theme, name}`;
+3. a variable anywhere in the node, and then the theme's fields, each of its shape: an unknown key `:unknown_key`, a `series` entry or furniture that is not a literal color `{:type, :color}`, a `series` that is not a non-empty list `{:type, :colors}`, a `font_family` that is not a string `{:type, :string}`, sizes that are not positive numbers `{:type, :pos_number}`, `ramps`, `colors`, `styles` and `defaults` that are not maps `{:type, :map}`, a counterpart that is no built-in `{:unknown_theme, name}`;
 4. the contracts, each broken one `{:contract, message}` at `[:theme, :ramps, name]`, `[:theme, :colors, name]` or `[:theme, :styles, name]`;
 5. then the theme.
 
@@ -533,6 +548,10 @@ A value no form can write but the theme takes, such as root defaults built under
 a theme round-trips through its value and JSON form, the built-ins and host themes with pinned steps included, its name maps holding every name as a string and read back as the library's atoms, and a theme entry of a store through a bundle's forms and import; a newer stamp, a broken contract at its path, a variable, an unknown theme name and an unknown key are refused; a theme fragment stacks over a built-in
 ```
 
+```test:themes-document-v1-step
+a v0.2.4 version 1 document of every built-in and of a host theme with pinned steps, transforms and literal paints reads to the same theme, also as a bundle's entry; the step tags every color position and leaves text it does not read, refused at its path; a version 2 document holding text where a color belongs is refused
+```
+
 ```test:themes-document-value
 from_map/2 judges a theme document's value with no form written or read: a node Form.to_map/2 refuses (an atom name in a name map) builds its theme, no limit applies to a value, and from_json/2 of the JSON form gives what from_map/2 gives of the value
 ```
@@ -543,8 +562,8 @@ A theme compiles to **custom properties scoped by a class**, `.mw-theme-<name>` 
 
 - **`Sheet.rule(theme)`** is the theme's rule, its class the theme's name with `_` as `-` (a name that is not lower-case words raises `ArgumentError`, so a sheet can never be broken out of through a name):
   1. `.mw-theme-<name> {`;
-  2. one `  --mw-<slot>: <value>;` per slot of `slots/1`, sizes with `px`;
-  3. one line per name of the theme's own `colors` that is not a slot, in name order, as its literal, followed by one per step it pins other than 500 (`--mw-red-100`);
+  2. one `  --mw-<slot>: <value>;` per slot of `slots/1`, a color by `to_css/1` (§1.6), sizes with `px`;
+  3. one line per name of the theme's own `colors` that is not a slot, in name order, as its literal's CSS text, followed by one per step it pins other than 500 (`--mw-red-100`);
   4. `}`.
 
   Then comes a **forced-colors block**: `@media (forced-colors: active)` declaring `--mw-text` and `--mw-axis` as `CanvasText`, `--mw-background` and `--mw-surface` as `Canvas`, and `--mw-grid` as `GrayText`. In high-contrast mode what is drawn from the theme then agrees with the user's palette, and a role still reads by its dash and glyph.

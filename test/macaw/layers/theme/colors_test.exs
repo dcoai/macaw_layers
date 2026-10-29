@@ -6,7 +6,7 @@ defmodule Macaw.Layers.Theme.ColorsTest do
   """
   use ExUnit.Case, async: true
 
-  import Macaw.Layers.Color, only: [color: 1]
+  import Macaw.Layers.Color, only: [color: 1, sigil_RGB: 2]
 
   alias Macaw.Layers.{Color, Theme}
 
@@ -14,7 +14,7 @@ defmodule Macaw.Layers.Theme.ColorsTest do
   test "a hue resolves through the theme's table, as a slot does" do
     assert Color.resolve(color(:red), Theme.default(), :css) == "var(--mw-red, #c23238)"
     assert Color.resolve(color(:red), Theme.dark(), :css) == "var(--mw-red, #ff8f8a)"
-    assert Color.resolve(color(:red), Theme.dark(), :literal) == "#ff8f8a"
+    assert Color.resolve(color(:red), Theme.dark(), :literal) === ~RGB"#ff8f8a"
   end
 
   @tag verifies: "themes-color-table-lookup"
@@ -27,8 +27,8 @@ defmodule Macaw.Layers.Theme.ColorsTest do
 
   @tag verifies: "themes-color-table-lookup"
   test "a theme changes a value and adds names; a name in no part of the table raises" do
-    theme = Theme.new(name: :house, colors: %{red: "#e00000", brand: "#123456"})
-    assert Color.resolve(color(:red), theme, :literal) == "#e00000"
+    theme = Theme.new(name: :house, colors: %{red: ~RGB"#e00000", brand: ~RGB"#123456"})
+    assert Color.resolve(color(:red), theme, :literal) === ~RGB"#e00000"
     assert Color.resolve(color(:brand), theme, :css) == "var(--mw-brand, #123456)"
     assert "brand" in Theme.color_names(theme)
 
@@ -43,7 +43,7 @@ defmodule Macaw.Layers.Theme.ColorsTest do
   # spelling (spec/04 §2.2), so "red" is one.
   @tag verifies: "themes-color-table-lookup"
   test "color_name?/2 answers exactly color_names/1's membership" do
-    house = Theme.new(name: :house, colors: %{brand: "#123456"})
+    house = Theme.new(name: :house, colors: %{brand: ~RGB"#123456"})
 
     for theme <- [house | Enum.map([:default, :dark, :color_safe, :print], &Theme.builtin/1)] do
       names = Theme.color_names(theme)
@@ -62,7 +62,7 @@ defmodule Macaw.Layers.Theme.ColorsTest do
   test "an entry may be a color value that resolves through the same table" do
     theme = Theme.new(colors: %{accent: color(:red), wash: {:intensity, color(:red), 0.5}})
     assert Color.resolve(color(:accent), theme, :css) == "var(--mw-accent, #c23238)"
-    assert Color.resolve(color(:wash), theme, :literal) == "#c2323880"
+    assert Color.resolve(color(:wash), theme, :literal) === ~RGB"#c2323880"
   end
 
   @tag verifies: "themes-color-table-lookup"
@@ -76,40 +76,40 @@ defmodule Macaw.Layers.Theme.ColorsTest do
     @tag verifies: "themes-builtins-values"
     test "every built-in theme resolves each role exactly as before" do
       expected = %{
-        default: ~w(#4ca34b #bd7407 #c23238 #3b6fa8 #6f7480),
-        dark: ~w(#4f924c #db8e1c #ff8f8a #7fb3e6 #b7bcc6),
-        color_safe: ~w(#5996d6 #cd6012 #b92931 #3b6fa8 #6f7480),
-        print: ~w(#5996d6 #cd6012 #b92931 #3b6fa8 #6f7480)
+        default: [~RGB"#4ca34b", ~RGB"#bd7407", ~RGB"#c23238", ~RGB"#3b6fa8", ~RGB"#6f7480"],
+        dark: [~RGB"#4f924c", ~RGB"#db8e1c", ~RGB"#ff8f8a", ~RGB"#7fb3e6", ~RGB"#b7bcc6"],
+        color_safe: [~RGB"#5996d6", ~RGB"#cd6012", ~RGB"#b92931", ~RGB"#3b6fa8", ~RGB"#6f7480"],
+        print: [~RGB"#5996d6", ~RGB"#cd6012", ~RGB"#b92931", ~RGB"#3b6fa8", ~RGB"#6f7480"]
       }
 
       for {name, literals} <- expected,
           {role, literal} <- Enum.zip(Theme.role_names(), literals) do
         theme = Theme.builtin(name)
-        assert Theme.resolve(theme, role, :literal) == literal
-        assert Theme.resolve(theme, role, :css) == "var(--mw-#{role}, #{literal})"
+        assert Theme.resolve(theme, role, :literal) === literal
+        assert Theme.resolve(theme, role, :css) == "var(--mw-#{role}, #{Color.to_css(literal)})"
       end
     end
 
     @tag verifies: "themes-resolve-modes"
     test "the status roles are their ramp positions, and follow the ramp" do
-      theme = Theme.new(ramps: %{status: ~w(#5996d6 #cd6012 #b92931)})
-      assert Theme.resolve(theme, :bad, :literal) == "#b92931"
+      theme = Theme.new(ramps: %{status: [~RGB"#5996d6", ~RGB"#cd6012", ~RGB"#b92931"]})
+      assert Theme.resolve(theme, :bad, :literal) === ~RGB"#b92931"
       assert Theme.resolve(theme, {:ramp, :status, 1}, :css) == "var(--mw-bad, #b92931)"
     end
 
     @tag verifies: "themes-resolve-modes"
     test "a theme may set a role's color, which then stands apart from the ramp" do
-      theme = Theme.new(colors: %{bad: "#d55e00"})
+      theme = Theme.new(colors: %{bad: ~RGB"#d55e00"})
       assert Theme.resolve(theme, :bad, :css) == "var(--mw-bad, #d55e00)"
       assert Theme.resolve(theme, {:ramp, :status, 1}, :css) == "#c23238"
     end
 
     @tag verifies: "themes-color-table-lookup"
     test "roles: is read as colors" do
-      assert Theme.new(roles: %{info: "#2255aa"}).colors.info == "#2255aa"
+      assert Theme.new(roles: %{info: ~RGB"#2255aa"}).colors.info === ~RGB"#2255aa"
 
-      assert Theme.new(roles: %{info: "#2255aa"}, colors: %{info: "#2266bb"}).colors.info ==
-               "#2266bb"
+      assert Theme.new(roles: %{info: ~RGB"#2255aa"}, colors: %{info: ~RGB"#2266bb"}).colors.info ==
+               ~RGB"#2266bb"
     end
   end
 end

@@ -308,7 +308,20 @@ defmodule Macaw.Layers.Theme.Palette do
       {:error, "a palette entry is flat and may not use extends, got extends: #{inspect(parent)}"}
 
   defp entry(name, entry, _styles, extra) do
-    with :ok <- cues(name, entry), do: group(group_of(name, extra), entry)
+    with :ok <- cues(name, entry),
+         :ok <- paints(entry),
+         do: group(group_of(name, extra), entry)
+  end
+
+  # A paint's color is a color term or a slot, never text (spec/04 §1.1, §2.4).
+  defp paints(entry) do
+    case Enum.find(@paints, &is_binary(color(entry, &1))) do
+      nil ->
+        :ok
+
+      part ->
+        {:error, "#{part}.color #{Macaw.Layers.Color.Typed.text_hint(color(entry, part))}"}
+    end
   end
 
   # The name whose contract an entry is held to: the library's own, or, for a name an

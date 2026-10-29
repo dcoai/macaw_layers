@@ -3,7 +3,8 @@ defmodule Macaw.Layers.Theme.RulesTest do
   # data colors (§4), the contrast floors as faults (§2.6), and precedence (§3.3).
   use ExUnit.Case, async: true
 
-  import Macaw.Layers.Color, only: [color: 1, intensity: 2, blend: 1, alpha: 2, lighten: 2]
+  import Macaw.Layers.Color,
+    only: [sigil_RGB: 2, color: 1, intensity: 2, blend: 1, alpha: 2, lighten: 2]
 
   alias Macaw.Layers.{Color, Fragment, Theme, Use}
   alias Macaw.Layers.Test.Design
@@ -21,7 +22,7 @@ defmodule Macaw.Layers.Theme.RulesTest do
         wide: {:modifier, %{stroke: %{width: 4}}}
       }
 
-    def colors, do: %{lane: "#8a8f99"}
+    def colors, do: %{lane: ~RGB"#8a8f99"}
   end
 
   defmodule Dup do
@@ -56,6 +57,14 @@ defmodule Macaw.Layers.Theme.RulesTest do
     def colors, do: %{}
   end
 
+  defmodule Texted do
+    @moduledoc false
+    @behaviour Macaw.Layers.Theme.Extension
+    def name, do: "texted"
+    def styles, do: %{}
+    def colors, do: %{lane: "#8a8f99"}
+  end
+
   defmodule Strayed do
     @moduledoc false
     @behaviour Macaw.Layers.Theme.Extension
@@ -75,7 +84,7 @@ defmodule Macaw.Layers.Theme.RulesTest do
       assert Theme.color_name?(theme, :lane) and Theme.color_name?(theme, "lane")
       assert :lane in Theme.color_names(theme)
       assert Theme.resolve(theme, :lane, :css) == "var(--mw-lane, #8a8f99)"
-      assert Color.resolve(color(:lane), theme, :literal) == "#8a8f99"
+      assert Color.resolve(color(:lane), theme, :literal) === ~RGB"#8a8f99"
 
       refute Theme.color_name?(Theme.default(), :lane)
 
@@ -91,14 +100,14 @@ defmodule Macaw.Layers.Theme.RulesTest do
           name: :house,
           extensions: [Marks],
           styles: %{lane: %{stroke: %{type: :solid, color: {:color, :axis}, width: 2}}},
-          colors: %{lane: "#111111"}
+          colors: %{lane: ~RGB"#111111"}
         )
 
       assert Theme.style(theme, :lane) == %{
                stroke: %{type: :solid, color: {:color, :axis}, width: 2}
              }
 
-      assert Theme.resolve(theme, :lane, :literal) == "#111111"
+      assert Theme.resolve(theme, :lane, :literal) === ~RGB"#111111"
 
       assert Document.from_map(Document.to_map(theme), extensions: [Marks]) == {:ok, theme}
       {:ok, json} = Document.to_json(theme)
@@ -122,6 +131,14 @@ defmodule Macaw.Layers.Theme.RulesTest do
       assert_raise ArgumentError, ~r/names "lane", not a color of the theme's color table/, fn ->
         Theme.new(styles: %{hover: %{stroke: %{type: :solid, color: {:color, :lane}, width: 2}}})
       end
+    end
+
+    @tag verifies: "themes-extensions-registered"
+    test "an extension's color is a color term: text raises naming the extension and the edges" do
+      assert_raise ArgumentError,
+                   ~s(extension "texted": color :lane "#8a8f99" is text, and a string is never ) <>
+                     ~s(a color: read it with Macaw.Layers.Color.parse!/1, or write ~RGB"#8a8f99"),
+                   fn -> Theme.new(extensions: [Texted]) end
     end
 
     @tag verifies: "themes-extensions-registered"
@@ -179,18 +196,33 @@ defmodule Macaw.Layers.Theme.RulesTest do
           do: assert(Theme.check_color(value, :roles) == :ok)
 
       for value <- [
-            "#ff0000",
-            alpha("#3b6fa8", 0.5),
-            blend([color(:red), intensity("#00ff00", 0.5)]),
-            {:contrast, "#000000"}
+            ~RGB"#ff0000",
+            alpha(~RGB"#3b6fa8", 0.5),
+            blend([color(:red), intensity(~RGB"#00ff00", 0.5)]),
+            {:contrast, ~RGB"#000000"}
           ],
           do: assert(Theme.check_color(value, :roles) == {:error, {:literal_color, value}})
 
-      for value <- ["#ff0000", color(:bad), blend([color(:red), intensity("#00ff00", 0.5)])],
+      for value <- [
+            ~RGB"#ff0000",
+            color(:bad),
+            blend([color(:red), intensity(~RGB"#00ff00", 0.5)])
+          ],
           do: assert(Theme.check_color(value, :open) == :ok)
 
       assert_raise ArgumentError, ~r/a color profile is :roles or :open/, fn ->
-        Theme.check_color("#fff", :loose)
+        Theme.check_color(~RGB"#fff", :loose)
+      end
+
+      # A string is never a color, under either profile.
+      for profile <- [:roles, :open] do
+        assert_raise ArgumentError, ~r/"#ff0000" is text, and a string is never a color/, fn ->
+          Theme.check_color("#ff0000", profile)
+        end
+
+        assert_raise ArgumentError, ~r/not a color value/, fn ->
+          Theme.check_color({:alpha, "#ff0000", 0.5}, profile)
+        end
       end
     end
 
@@ -198,14 +230,14 @@ defmodule Macaw.Layers.Theme.RulesTest do
     test "a data color reaching 3:1 against the background is its literal, one under is refused with its ratio" do
       theme = Theme.default()
 
-      assert Theme.data_color(theme, "#3b6fa8") == {:ok, "#3b6fa8"}
-      assert Theme.data_color(theme, color(:bad)) == {:ok, "#c23238"}
-      assert Theme.data_color(theme, "#ffff00") == {:error, {:contrast, 1.07}}
-      assert {:error, {:contrast, ratio}} = Theme.data_color(theme, alpha("#3b6fa8", 0.2))
+      assert Theme.data_color(theme, ~RGB"#3b6fa8") == {:ok, ~RGB"#3b6fa8"}
+      assert Theme.data_color(theme, color(:bad)) == {:ok, ~RGB"#c23238"}
+      assert Theme.data_color(theme, ~RGB"#ffff00") == {:error, {:contrast, 1.07}}
+      assert {:error, {:contrast, ratio}} = Theme.data_color(theme, alpha(~RGB"#3b6fa8", 0.2))
       assert ratio < 3
 
       # On the dark background the yellow reads.
-      assert Theme.data_color(Theme.dark(), "#ffff00") == {:ok, "#ffff00"}
+      assert Theme.data_color(Theme.dark(), ~RGB"#ffff00") == {:ok, ~RGB"#ffff00"}
     end
 
     @tag verifies: "themes-profile-colors"
@@ -214,10 +246,14 @@ defmodule Macaw.Layers.Theme.RulesTest do
             color(:nope),
             "not a color",
             "#12345z",
+            "#3b6fa8",
+            "steelblue",
+            %Color{r: 59, g: 111, b: 168, opacity: 1},
             :bad,
             7,
             {:ramp, :nope, 0.5},
-            alpha("nope", 0.5)
+            {:alpha, "nope", 0.5},
+            {:alpha, "#3b6fa8", 0.5}
           ],
           do:
             assert(
@@ -229,7 +265,7 @@ defmodule Macaw.Layers.Theme.RulesTest do
 
   describe "the floors (spec/04 §2.6)" do
     defp floor(color, background),
-      do: Float.floor(Color.contrast(Color.parse(color), Color.parse(background)), 2)
+      do: Float.floor(Color.contrast(color, background), 2)
 
     @tag verifies: "themes-floors-builtins"
     test "floors refuses text under 4.5:1, an axis or series color under 3:1, a grid under 1.2:1 and a surface equal to the grid" do
@@ -238,20 +274,20 @@ defmodule Macaw.Layers.Theme.RulesTest do
 
       faint =
         Theme.new(
-          text: "#999999",
-          axis: "#bbbbbb",
-          series: ["#3b6fa8", "#ffdd88"],
-          grid: "#f8f8f8",
-          surface: "#f8f8f8"
+          text: ~RGB"#999999",
+          axis: ~RGB"#bbbbbb",
+          series: [~RGB"#3b6fa8", ~RGB"#ffdd88"],
+          grid: ~RGB"#f8f8f8",
+          surface: ~RGB"#f8f8f8"
         )
 
       assert Theme.floors(faint) ==
                {:error,
                 [
-                  {:text, {:contrast, floor("#999999", "#ffffff"), 4.5}},
-                  {:axis, {:contrast, floor("#bbbbbb", "#ffffff"), 3.0}},
-                  {:series_2, {:contrast, floor("#ffdd88", "#ffffff"), 3.0}},
-                  {:grid, {:contrast, floor("#f8f8f8", "#ffffff"), 1.2}},
+                  {:text, {:contrast, floor(~RGB"#999999", ~RGB"#ffffff"), 4.5}},
+                  {:axis, {:contrast, floor(~RGB"#bbbbbb", ~RGB"#ffffff"), 3.0}},
+                  {:series_2, {:contrast, floor(~RGB"#ffdd88", ~RGB"#ffffff"), 3.0}},
+                  {:grid, {:contrast, floor(~RGB"#f8f8f8", ~RGB"#ffffff"), 1.2}},
                   {:surface, {:equal, :grid}}
                 ]}
     end
@@ -268,14 +304,17 @@ defmodule Macaw.Layers.Theme.RulesTest do
     test "contrast with no color is the ink over what is under, resolved against the theme's background" do
       assert Color.contrast() == {:contrast, :under}
       assert Color.resolve(Color.contrast(), Theme.default(), :css) == "#333333"
-      assert Color.resolve(Color.contrast(), Theme.dark(), :literal) == "#e6e6e6"
+      assert Color.resolve(Color.contrast(), Theme.dark(), :literal) === ~RGB"#e6e6e6"
     end
   end
 
   describe "the series cap (spec/04 §2.1, §5)" do
     @tag verifies: "themes-slots-order"
     test "a theme holds at most 64 series colors, each slot the library's atom" do
-      colors = for k <- 1..64, do: "#" <> String.pad_leading(Integer.to_string(k * 3, 16), 6, "0")
+      colors =
+        for k <- 1..64,
+            do: Color.parse!("#" <> String.pad_leading(Integer.to_string(k * 3, 16), 6, "0"))
+
       theme = Theme.build(Theme.default(), series: colors)
       assert length(Theme.slots(theme)) == 64 + 14
 
@@ -287,13 +326,13 @@ defmodule Macaw.Layers.Theme.RulesTest do
                  [:axis, :grid, :text, :background, :surface] ++ Theme.role_names()
 
       assert_raise ArgumentError, ~r/series: a theme holds at most 64 colors, got 65/, fn ->
-        Theme.new(series: colors ++ ["#000000"])
+        Theme.new(series: colors ++ [~RGB"#000000"])
       end
     end
 
     @tag verifies: "themes-document-forms"
     test "a document's series longer than 64 is refused at its path" do
-      series = List.duplicate("#3b6fa8", 65)
+      series = List.duplicate(~RGB"#3b6fa8", 65)
 
       assert Document.from_map(%{theme: %{series: series}}) ==
                {:error, [{[:theme, :series], {:limit, :series, 64, 65}}]}
@@ -306,11 +345,13 @@ defmodule Macaw.Layers.Theme.RulesTest do
       assert Theme.style(Theme.new(styles: %{muted: %{opacity: 0.4}}), :muted) == %{opacity: 0.4}
       assert Theme.style(%{Theme.default() | styles: %{}}, :muted) == %{opacity: 0.25}
 
-      assert Theme.resolve(Theme.new(colors: %{red: "#aa0000"}), :red, :literal) == "#aa0000"
-      assert Theme.resolve(Theme.default(), :red, :literal) == "#c23238"
+      assert Theme.resolve(Theme.new(colors: %{red: ~RGB"#aa0000"}), :red, :literal) ===
+               ~RGB"#aa0000"
+
+      assert Theme.resolve(Theme.default(), :red, :literal) === ~RGB"#c23238"
       # gray is both the default theme's own and a CSS name: the default's wins.
-      assert Theme.resolve(Theme.default(), :gray, :literal) == "#6f7480"
-      assert Theme.resolve(Theme.default(), :tomato, :literal) == "#ff6347"
+      assert Theme.resolve(Theme.default(), :gray, :literal) === ~RGB"#6f7480"
+      assert Theme.resolve(Theme.default(), :tomato, :literal) === ~RGB"#ff6347"
     end
 
     @tag verifies: "themes-precedence-layers"
@@ -341,8 +382,8 @@ defmodule Macaw.Layers.Theme.RulesTest do
       upper = %{
         theme: %{
           name: "house",
-          axis: "#555555",
-          colors: %{"brand" => "#123456"},
+          axis: ~RGB"#555555",
+          colors: %{"brand" => ~RGB"#123456"},
           styles: %{"muted" => %{opacity: 0.4}}
         }
       }
@@ -350,8 +391,8 @@ defmodule Macaw.Layers.Theme.RulesTest do
       expected =
         Theme.merge(Theme.default(),
           name: :house,
-          axis: "#555555",
-          colors: %{brand: "#123456"},
+          axis: ~RGB"#555555",
+          colors: %{brand: ~RGB"#123456"},
           styles: %{muted: %{opacity: 0.4}}
         )
 
