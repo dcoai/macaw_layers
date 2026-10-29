@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+**Breaking:** every digest changes.
+
+- The kernel's digest is over the value itself, any data term, not its map form (spec/01 §7, #3, macaw#188): a type-tagged canonical encoding of the term, so identity no longer needs a representation. `1`/`1.0`, `:a`/`"a"`, `{:a}`/`[:a]` and a `DateTime`'s zone all count. A function, PID, reference, port or improper list raises.
+
 ## v0.2.4 (2026-10-29)
 
 Additive: the hooks visualize needs to adopt the cascade and composites (macaw#179, macaw#183, visualize#963), and a load-order fix.

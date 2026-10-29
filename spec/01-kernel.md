@@ -290,38 +290,41 @@ tag/2 with a literal tag the table lacks is a compile error naming the table, a 
 
 ## 7. The digest {#kernel-digest}
 
-**`Macaw.Layers.Document.digest/1` fingerprints a document independently of key order.** It takes the document's map form (§6) and returns 64 lowercase hex characters: the SHA-256 of its **canonical encoding**, which is JSON with:
-- every object's keys sorted bytewise;
-- no insignificant whitespace;
-- each string as Elixir's `JSON` encodes it;
-- an integer in decimal, and a float in its shortest spelling that reads back as the same float (so `1` and `1.0` differ, as they do as values).
+**`Macaw.Layers.Document.digest/1` fingerprints a value: the term itself, never a representation of it.** It takes any data term and returns 64 lowercase hex characters, the SHA-256 of the term's **canonical encoding**. A value has one digest however it was built and whatever form it is later written in. Its map form or JSON form is another term with a digest of its own, so identity never depends on a representation existing (macaw#188).
 
-Records, base renders and bundles cite a document by its digest.
+The canonical encoding is one version byte, `1`, then the term, every part tagged by its type and self-delimiting. Sizes are unsigned 64-bit and every number is big-endian:
 
-- Reordering keys, at any depth, does not change the digest.
-- A document's map form and its JSON round trip have the same digest.
-- Two map forms that differ in any value have different digests.
-- A term that is not a map form (an atom key, an atom, a tuple, any value with no JSON form) raises `ArgumentError`: the caller writes the map form first.
-- **The canonical encoding is part of the kernel's contract.** Changing it changes every digest, so it changes only with a new major version.
+| Term | Encoding |
+|---|---|
+| an atom (`nil`, `true` and `false` too) | `a`, its name's byte size, its name in UTF-8 |
+| a binary | `b`, its byte size, its bytes |
+| a bitstring of another size | `s`, its bit size, its bits padded with zeros to a whole byte |
+| an integer, of any size | `i`, the byte size of its decimal spelling, that spelling (`-` for a negative) |
+| a float | `f`, its IEEE 754 64-bit form |
+| a list | `l`, its length, each element |
+| a tuple | `t`, its size, each element |
+| a map | `m`, its size, then each key's encoding followed by its value's, ordered by the keys' encodings bytewise |
+
+- **Key order never matters,** and different terms have different encodings: `1` and `1.0`, `0.0` and `-0.0` (as under `===`), `:a` and `"a"`, `{:a}` and `[:a]`, a map holding `nil` and one lacking the key.
+- **A struct is its map,** `__struct__` and all. So a `DateTime` carries its zone, offset and precision, two `DateTime`s at one instant in different zones differ, and a struct differs from its bare map.
+- **A term that is not data raises `ArgumentError`,** naming it: a function, a PID, a reference, a port, an improper list.
+
+Records, base renders and bundles cite a value by its digest. **The canonical encoding is part of the kernel's contract.** Changing it changes every digest, so it changes only with a new major version. Its version byte is what such a change would move.
 
 ```test:digest-order
-over generated map forms, the digest is unchanged by reordering keys at any depth, and is 64 lowercase hex characters
-```
-
-```test:digest-round-trip
-over generated map forms, the digest of the JSON round trip equals the digest of the map form
+over generated data terms (atoms, strings, integers beyond 64 bits, floats, dates, times, structs, lists, tuples, and maps with atom and string keys), the digest is unchanged by reordering keys at any depth, and is 64 lowercase hex characters
 ```
 
 ```test:digest-differs
-over generated pairs of different map forms, the digests differ; 1 and 1.0 differ, and so do "a" and ["a"]
+over generated pairs of different terms, the digests differ; 1 and 1.0, 0.0 and -0.0, :a and "a", {:a} and [:a], a held nil and a missing key, a bitstring and its padded binary, a struct and its map, and two DateTimes differing only in precision or zone each differ
 ```
 
 ```test:digest-golden
-a fixed document's digest is the recorded one, so any change to the canonical encoding fails the test
+fixed values' digests are the recorded ones, computed independently from this section's table, so any change to the encoding fails the test
 ```
 
-```test:digest-not-map-form
-an atom key, an atom value and a tuple each raise ArgumentError naming the term
+```test:digest-not-data
+a function, a PID, a reference, an improper list and a map holding a PID each raise ArgumentError
 ```
 
 ## 8. Untrusted strings {#kernel-untrusted}
