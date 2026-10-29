@@ -71,10 +71,8 @@ defmodule Macaw.Layers.Theme.Sheet do
   end
 
   defp class(name) do
-    spelled = to_string(name)
-
-    if Table.word?(spelled),
-      do: ".mw-theme-" <> String.replace(spelled, "_", "-"),
+    if is_binary(name) and Table.word?(name),
+      do: ".mw-theme-" <> String.replace(name, "_", "-"),
       else:
         raise(
           ArgumentError,

@@ -20,8 +20,8 @@ defmodule Macaw.Layers.Theme do
   Its colors are terms (§2.1): a literal is `%Macaw.Layers.Color{}`, read from text at the
   edge (`Macaw.Layers.Color.parse!/1`, `~RGB"#3b6fa8"`), and a string is never a color.
 
-  **Its names are strings** (§2.1), the library's, its extensions' and a host's alike: the
-  slots, the keys of `ramps`, `colors` and `styles`, and the name in every typed color
+  **Its names are strings** (§2.1), the library's, its extensions' and a host's alike: its
+  own `name` and its `dark` and `light`, the slots, the keys of `ramps`, `colors` and `styles`, and the name in every typed color
   (`{:color, "good"}`, `{:ramp, "status", 0.5}`). A name given as an atom is read as its
   string, once, when the theme is built (`new/1`, `merge/2`, a document read), so `:info`
   and `"info"` are one name; every function that takes a name takes either spelling. Its
@@ -118,7 +118,7 @@ defmodule Macaw.Layers.Theme do
   # The CSS named colors, the table's base (§1.1, §2.2).
   @css_names Color.named_colors()
 
-  defstruct name: :default,
+  defstruct name: "default",
             series: @light_series,
             axis: ~RGB"#666666",
             grid: ~RGB"#e0e0e0",
@@ -156,7 +156,7 @@ defmodule Macaw.Layers.Theme do
   @type mode :: :css | :literal
 
   @type t :: %__MODULE__{
-          name: atom() | String.t(),
+          name: String.t(),
           series: [Color.t(), ...],
           axis: Color.t(),
           grid: Color.t(),
@@ -171,8 +171,8 @@ defmodule Macaw.Layers.Theme do
           font_size: number(),
           label_size: number(),
           title_size: number(),
-          dark: atom() | String.t() | nil,
-          light: atom() | String.t() | nil,
+          dark: String.t() | nil,
+          light: String.t() | nil,
           extensions: [module()]
         }
 
@@ -187,7 +187,7 @@ defmodule Macaw.Layers.Theme do
   @font_slots [:font_family | @size_slots]
   @fields Map.new(@furniture ++ @font_slots, &{Atom.to_string(&1), &1})
   @fixed_slots @color_slots ++ @role_slots ++ Enum.map(@font_slots, &Atom.to_string/1)
-  @builtin [:default, :dark, :color_safe, :print]
+  @builtin ~w(default dark color_safe print)
   # Every color name the library itself gives (§2.2), each a string as a host's is.
   @library_color_names Enum.uniq(
                          @fixed_slots ++
@@ -225,13 +225,13 @@ defmodule Macaw.Layers.Theme do
 
   @doc "The light theme: dark text and axes on white."
   @spec default() :: t()
-  def default, do: %__MODULE__{dark: :dark}
+  def default, do: %__MODULE__{dark: "dark"}
 
   @doc "The dark theme: light text and axes on `#1b1e24`."
   @spec dark() :: t()
   def dark do
     %__MODULE__{
-      name: :dark,
+      name: "dark",
       series: @dark_series,
       axis: ~RGB"#a0a4ab",
       grid: ~RGB"#33373f",
@@ -240,7 +240,7 @@ defmodule Macaw.Layers.Theme do
       surface: ~RGB"#23272f",
       ramps: @dark_ramps,
       colors: @dark_colors,
-      light: :default
+      light: "default"
     }
   end
 
@@ -250,7 +250,7 @@ defmodule Macaw.Layers.Theme do
   """
   @spec color_safe() :: t()
   def color_safe,
-    do: %__MODULE__{name: :color_safe, ramps: %{@light_ramps | "status" => @safe_status}}
+    do: %__MODULE__{name: "color_safe", ramps: %{@light_ramps | "status" => @safe_status}}
 
   @doc """
   The print theme: paper. A white background and surface, near-black text and axes, a grid
@@ -260,7 +260,7 @@ defmodule Macaw.Layers.Theme do
   @spec print() :: t()
   def print do
     %__MODULE__{
-      name: :print,
+      name: "print",
       axis: ~RGB"#333333",
       grid: ~RGB"#c8c8c8",
       text: ~RGB"#111111",
@@ -272,30 +272,27 @@ defmodule Macaw.Layers.Theme do
   end
 
   @doc """
-  The built-in theme of a name, `:default`, `:dark`, `:color_safe` or `:print`, by either
-  spelling, or `nil`.
+  The built-in theme of a name, `"default"`, `"dark"`, `"color_safe"` or `"print"`, an atom
+  read as its string, or `nil`.
 
-      iex> Macaw.Layers.Theme.builtin("color_safe").name
-      :color_safe
+      iex> Macaw.Layers.Theme.builtin(:color_safe).name
+      "color_safe"
       iex> Macaw.Layers.Theme.builtin(:house)
       nil
   """
   @spec builtin(atom() | String.t()) :: t() | nil
-  def builtin(name) when is_binary(name) do
-    case Enum.find(@builtin, &(Atom.to_string(&1) == name)) do
-      nil -> nil
-      found -> builtin(found)
+  def builtin(name) do
+    case Names.name(name) do
+      "default" -> default()
+      "dark" -> dark()
+      "color_safe" -> color_safe()
+      "print" -> print()
+      _other -> nil
     end
   end
 
-  def builtin(:default), do: default()
-  def builtin(:dark), do: dark()
-  def builtin(:color_safe), do: color_safe()
-  def builtin(:print), do: print()
-  def builtin(_name), do: nil
-
   @doc false
-  @spec builtins() :: [atom(), ...]
+  @spec builtins() :: [String.t(), ...]
   def builtins, do: @builtin
 
   # -- ramps, roles and cues (§2.3) ------------------------------------------------------
@@ -494,7 +491,7 @@ defmodule Macaw.Layers.Theme do
       iex> Macaw.Layers.Theme.new(axis: Macaw.Layers.Color.parse!("#555555")).axis
       %Macaw.Layers.Color{r: 85.0, g: 85.0, b: 85.0, opacity: 1.0}
       iex> Macaw.Layers.Theme.new(axis: "#555")
-      ** (ArgumentError) theme :default: axis "#555" is text, and a string is never a color: read it with Macaw.Layers.Color.parse!/1, or write ~RGB"#555"
+      ** (ArgumentError) theme "default": axis "#555" is text, and a string is never a color: read it with Macaw.Layers.Color.parse!/1, or write ~RGB"#555"
   """
   @spec new(keyword() | map()) :: t()
   def new(fields), do: merge(%{default() | dark: nil}, fields)

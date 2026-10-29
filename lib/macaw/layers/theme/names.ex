@@ -3,10 +3,10 @@ defmodule Macaw.Layers.Theme.Names do
   # A theme's names, normalized once (spec/04 §2.1, §2.2): every name inside a theme is a
   # string, the library's, an extension's and a host's alike, so `:info` and `"info"` are
   # one name, the later given winning. `normalize/1` is the one place an atom name becomes
-  # its string: the keys of the name maps `ramps`, `colors` (and the old `roles`), `styles`
-  # and `defaults`; the name in every typed color, `{:color, name}` and `{:ramp, name, t}`,
-  # wherever it stands, ramp anchors, color entries, pinned steps, style nodes and defaults
-  # alike; a palette name in a list entry; and a bare atom in a paint's color, which is the
+  # its string: the theme's own name and its `dark` and `light`; the keys of the name maps
+  # `ramps`, `colors` (and the old `roles`), `styles` and `defaults`; the name in every
+  # typed color, `{:color, name}` and `{:ramp, name, t}`, wherever it stands, ramp anchors,
+  # color entries, pinned steps, style nodes and defaults alike; a palette name in a list entry; and a bare atom in a paint's color, which is the
   # typed color it names. Words, the keys and atom values of a style node or a default's
   # node, are kept as given. A name given in both spellings in one map is `{:duplicate,
   # path}`. `Atom.to_string/1` makes no atom.
@@ -14,7 +14,6 @@ defmodule Macaw.Layers.Theme.Names do
   # Ported from visualize's `Visualize.Theme.Names`.
 
   alias Macaw.Layers.Color.Typed
-  alias Macaw.Layers.Theme
 
   @ops [:intensity, :alpha, :lighten, :darken, :saturate, :shade]
   @name_maps [:ramps, :roles, :colors, :styles, :defaults]
@@ -49,7 +48,7 @@ defmodule Macaw.Layers.Theme.Names do
         fields
 
       {:duplicate, [key, both]} ->
-        theme = theme_name(Map.get(fields, :name, name))
+        theme = name(Map.get(fields, :name, name))
 
         raise ArgumentError,
               "theme #{inspect(theme)}: #{key} gives #{inspect(both)} both as an atom and as " <>
@@ -94,21 +93,16 @@ defmodule Macaw.Layers.Theme.Names do
   def value({:contrast, c}), do: {:contrast, value(c)}
   def value(other), do: other
 
-  # A theme's own name and its counterparts: a built-in's atom, any other the string of the
-  # host's.
+  # A theme's own name and its counterparts, strings as its other names are, a built-in's
+  # and a host's alike.
   defp theme_names(fields) do
     Enum.reduce([:name, :dark, :light], fields, fn key, fields ->
       case fields do
-        %{^key => name} -> %{fields | key => theme_name(name)}
+        %{^key => name} -> %{fields | key => name(name)}
         %{} -> fields
       end
     end)
   end
-
-  defp theme_name(name) when is_atom(name) and name not in [nil, true, false],
-    do: if(name in Theme.builtins(), do: name, else: Atom.to_string(name))
-
-  defp theme_name(name), do: name
 
   @doc false
   # An entry of the name map `key` with its names as strings: a ramp's anchors, a palette

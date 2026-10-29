@@ -44,6 +44,11 @@ The JSON adapter tells a name map from a node by the type's positions (spec/01 �
 - The vocabulary is the JSON reader's: `Form.read/3`, `from_map/3`, `to_map/3` and `to_json/3` take `vocabulary: %{keys: [...], atoms: [...]}`, merged over the type's tables for that call; no atom is made from a document beyond them. `Theme.Extension` gains an optional `words/0`; `Theme.Document.to_json/1` writes with the theme's extensions' words and `from_json/2` reads with the `extensions:` given, so **`from_json` needs `extensions:` for an adopter's words** (without them an adopter's atom value is `{:enum, allowed}` at its path). An extension's `styles/0` and `colors/0` may name by atom or string; the theme holds them as strings.
 - `Theme.Document`'s read path is the theme's normalization (its library-spelling-to-atom reading and the style-series name table are gone); `Table.spelled/2`'s either-way search is gone, and `Color.Names.atoms/0` (internal) is removed.
 
+**Breaking:** a theme's own name and its `dark` and `light` are strings (spec/04 §2.1, §2.5, §5, #16).
+
+- `%Theme{}`'s `name`, `dark` and `light` are strings, the built-ins' included: `Theme.default().name` is `"default"` (was `:default`), `default().dark` `"dark"`, `dark().light` `"default"`, `color_safe/0` and `print/0` named `"color_safe"` and `"print"`. Atom input is normalized once, at construction (`new/1`, `merge/2`, a document read), so `new(name: :house)` and `new(name: "house")` are one theme and `new(dark: :dark)` is `new(dark: "dark")`. `Theme.builtin/1` takes either spelling (`builtin("dark") == builtin(:dark)`); `Theme.builtins/0` (internal) answers strings. Fault messages name the theme as its string (`theme "default": …`).
+- `Theme.Document` writes the three as JSON strings (`"dark": "dark"`, where it wrote `{"$atom": "dark"}`) and reads them as strings; a version 1 (v0.2.4) document's `{"$atom": "dark"}` migrates to `"dark"` in the step to version 2, and is refused at version 2; a `name` that is not a string is `{:type, :string}`. The stylesheet's theme classes are unchanged (`.mw-theme-color-safe`).
+
 ## v0.2.4 (2026-10-29)
 
 Additive: the hooks visualize needs to adopt the cascade and composites (macaw#179, macaw#183, visualize#963), and a load-order fix.

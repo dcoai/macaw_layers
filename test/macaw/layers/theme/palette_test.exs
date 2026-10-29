@@ -114,7 +114,7 @@ defmodule Macaw.Layers.Theme.PaletteTest do
         entry = Theme.style(theme, role)
         cue = Theme.cue(role)
         # The print theme hatches four role fills, in the role's color.
-        hatched? = theme.name == :print and role != "neutral"
+        hatched? = theme.name == "print" and role != "neutral"
         fill = if hatched?, do: Map.take(entry.fill, [:type, :color]), else: entry.fill
         expected = if hatched?, do: %{type: :hatch, color: {:color, role}}, else: solid(role)
         assert fill == expected and entry.stroke.color == {:color, role}
@@ -150,7 +150,7 @@ defmodule Macaw.Layers.Theme.PaletteTest do
 
     @tag verifies: "themes-palette-entries"
     test "an unknown name, or a style index that is not a positive integer, raises" do
-      assert_raise ArgumentError, ~r/unknown palette style "sparkle" of theme :default/, fn ->
+      assert_raise ArgumentError, ~r/unknown palette style "sparkle" of theme "default"/, fn ->
         Theme.style(Theme.default(), :sparkle)
       end
 

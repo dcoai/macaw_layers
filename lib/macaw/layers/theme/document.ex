@@ -228,7 +228,7 @@ defmodule Macaw.Layers.Theme.Document do
 
   defp field(key, value) when key in @unions and is_map(value) and not is_struct(value), do: []
   defp field(key, _value) when key in @unions, do: [{[:theme, key], {:type, :map}}]
-  defp field(:name, value) when is_binary(value) or is_atom(value), do: []
+  defp field(:name, value) when is_binary(value), do: []
   defp field(:name, _value), do: [{[:theme, :name], {:type, :string}}]
 
   defp field(key, value) when key in [:dark, :light] do
@@ -244,13 +244,27 @@ defmodule Macaw.Layers.Theme.Document do
 
   # 1 -> 2: a literal color is a term, tagged `$rgb` (spec/04 §1.6, §5); version 1 wrote it
   # as CSS text. Each string at a color position that `Color.parse/1` reads is tagged; any
-  # other string is left as it is, for the reader to refuse at its path. A node that is a
-  # name holds no color.
+  # other string is left as it is, for the reader to refuse at its path. A theme's own name
+  # and its counterparts are strings (#16); version 1 wrote a built-in's as a `$atom`, which
+  # becomes the string it spells. A node that is a name holds no color.
   @impl Version
+  def step(%{"theme" => %{"$atom" => name}} = document, 1) when is_binary(name),
+    do: {:ok, %{document | "theme" => name}}
+
   def step(%{"theme" => node} = document, 1) when is_map(node),
-    do: {:ok, %{document | "theme" => tag_colors(node)}}
+    do: {:ok, %{document | "theme" => node |> theme_names() |> tag_colors()}}
 
   def step(document, 1), do: {:ok, document}
+
+  defp theme_names(node) do
+    Map.new(node, fn
+      {key, %{"$atom" => name}} when key in ["name", "dark", "light"] and is_binary(name) ->
+        {key, name}
+
+      other ->
+        other
+    end)
+  end
 
   @furniture_keys Enum.map(@furniture, &Atom.to_string/1)
   @op_keys Enum.map(Macaw.Layers.Color.Typed.ops(), &"$#{&1}")

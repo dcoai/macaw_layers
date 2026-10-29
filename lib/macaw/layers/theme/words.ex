@@ -2,8 +2,8 @@ defmodule Macaw.Layers.Theme.Words do
   @moduledoc false
   # The library's vocabulary in a theme document (spec/04 §5, spec/01 §5): the keys and the
   # atom values its JSON form may spell, the fields, the style parts and their keys, the
-  # built-in palette's values and the built-in themes' names. The JSON reader makes no
-  # other atom; a registered extension adds its own words (`Extension.words/0`). Words are
+  # built-in palette's values. The JSON reader makes no other atom; a registered extension
+  # adds its own words (`Extension.words/0`). Words are
   # not names: a theme's names are strings, and read as the strings they are.
 
   alias Macaw.Layers.{Theme, Vocabulary}
@@ -28,9 +28,7 @@ defmodule Macaw.Layers.Theme.Words do
             [:center, :medium, :bold, :italic, :round, :lines, :crosshatch, :dots, :cue]
 
   @keys Enum.uniq([:theme, :extends] ++ @fields ++ @parts ++ @part_keys)
-  @atoms Enum.uniq(
-           @palette_atoms ++ @values ++ Theme.builtins() ++ Theme.size_slots() ++ [:font_family]
-         )
+  @atoms Enum.uniq(@palette_atoms ++ @values ++ Theme.size_slots() ++ [:font_family])
 
   @key_table Vocabulary.table(@keys)
   @atom_table Vocabulary.table(@atoms)

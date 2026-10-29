@@ -105,7 +105,7 @@ defmodule Macaw.Layers.Theme.ThemeTest do
     @tag verifies: "themes-builtins-values"
     test "replace fields over the default or any theme" do
       theme = Theme.new(font_family: "Inter, sans-serif", axis: ~RGB"#123456")
-      assert theme.name == :default
+      assert theme.name == "default"
       assert theme.font_family == "Inter, sans-serif"
       assert theme.series == Theme.default().series
       assert Theme.merge(Theme.dark(), name: :night).name == "night"
@@ -121,7 +121,7 @@ defmodule Macaw.Layers.Theme.ThemeTest do
     @tag verifies: "themes-colors-terms"
     test "a string is never a color: text in a color field raises, naming parse!/1 and ~RGB" do
       message =
-        ~s(theme :default: axis "#555" is text, and a string is never a color: ) <>
+        ~s(theme "default": axis "#555" is text, and a string is never a color: ) <>
           ~s(read it with Macaw.Layers.Color.parse!/1, or write ~RGB"#555")
 
       assert_raise ArgumentError, message, fn -> Theme.new(axis: "#555") end
@@ -156,7 +156,7 @@ defmodule Macaw.Layers.Theme.ThemeTest do
     test "dark ink on a light fill and light ink on a dark fill, on both themes" do
       for theme <- [Theme.default(), Theme.dark()] do
         {dark, light} =
-          if theme.name == :dark,
+          if theme.name == "dark",
             do: {theme.background, theme.text},
             else: {theme.text, theme.background}
 

@@ -64,7 +64,7 @@ defmodule Macaw.Layers.Theme.RampsTest do
     @tag verifies: "themes-builtins-values"
     test "builtin/1 names the three, and nothing else" do
       assert Enum.map([:default, :dark, :color_safe], &Theme.builtin(&1).name) ==
-               [:default, :dark, :color_safe]
+               ["default", "dark", "color_safe"]
 
       assert Theme.builtin(:house) == nil
     end
@@ -213,7 +213,7 @@ defmodule Macaw.Layers.Theme.RampsTest do
     @tag verifies: "themes-ramps-contracts"
     test "a background alone never breaks a contract: lightness may run either way" do
       assert Theme.new(background: ~RGB"#000000").ramps == Theme.default().ramps
-      assert Theme.new(background: Color.rgb(0, 0, 0, 0)).name == :default
+      assert Theme.new(background: Color.rgb(0, 0, 0, 0)).name == "default"
     end
   end
 

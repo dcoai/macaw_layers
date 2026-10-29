@@ -13,7 +13,7 @@ defmodule Macaw.Layers.Theme.NamesTest do
 
   alias Macaw.Layers.{Color, Theme}
   alias Macaw.Layers.Test.Atoms
-  alias Macaw.Layers.Theme.Document
+  alias Macaw.Layers.Theme.{Document, Sheet}
 
   # An adopter's extension: a palette name, a color name, and the words its styles and
   # defaults use beyond the library's.
@@ -89,7 +89,7 @@ defmodule Macaw.Layers.Theme.NamesTest do
                    "are one name: give it once"
       end
 
-      assert_raise ArgumentError, ~r/theme :default: colors gives "info" both/, fn ->
+      assert_raise ArgumentError, ~r/theme "default": colors gives "info" both/, fn ->
         Theme.merge(Theme.default(), colors: %{:info => @blue, "info" => @blue})
       end
 
@@ -286,6 +286,73 @@ defmodule Macaw.Layers.Theme.NamesTest do
 
       for name <- Theme.color_names(theme) ++ Theme.style_names(theme) ++ Theme.slots(theme),
           do: assert(is_binary(name))
+    end
+  end
+
+  # -- the theme's own name ---------------------------------------------------------------
+
+  describe "a theme's own name and its counterparts are strings (#16)" do
+    @tag verifies: "themes-names-own"
+    test "new(name: :house) and new(name: \"house\") are one theme" do
+      assert Theme.new(name: :house) == Theme.new(name: "house")
+      assert Theme.new(name: :house).name == "house"
+      assert Theme.new(name: :default) == Theme.new(name: "default")
+      assert Theme.new(dark: :dark) == Theme.new(dark: "dark")
+      assert Theme.new(dark: :dark).dark == "dark"
+      assert Theme.merge(Theme.dark(), name: :night) == Theme.merge(Theme.dark(), name: "night")
+      assert Sheet.rule(Theme.new(name: :house)) == Sheet.rule(Theme.new(name: "house"))
+      assert Sheet.rule(Theme.new(name: "house")) =~ ~r/\A\.mw-theme-house \{/
+    end
+
+    @tag verifies: "themes-names-own"
+    test "every built-in's name and counterparts are strings, and builtin/1 takes either spelling" do
+      assert Theme.builtin("dark") == Theme.builtin(:dark)
+
+      assert Theme.builtins() == ~w(default dark color_safe print)
+
+      for {atom, name} <- [
+            default: "default",
+            dark: "dark",
+            color_safe: "color_safe",
+            print: "print"
+          ] do
+        theme = Theme.builtin(name)
+        assert theme.name == name
+        assert Theme.builtin(atom) == theme
+        assert Enum.all?([theme.dark, theme.light], &(is_nil(&1) or is_binary(&1)))
+      end
+
+      assert {Theme.default().dark, Theme.dark().light} == {"dark", "default"}
+      assert Theme.builtin(Theme.default().dark) == Theme.dark()
+      assert Theme.builtin("house") == nil
+    end
+
+    @tag verifies: "themes-names-own"
+    test "a theme document naming dark: \"dark\" resolves; a version 1 $atom name migrates to its string" do
+      house = Theme.new(name: :house, dark: :dark)
+
+      assert Document.from_map(%{theme: %{name: "house", dark: "dark"}}) == {:ok, house}
+      assert Document.from_map(%{theme: %{name: :house, dark: :dark}}) == {:ok, house}
+
+      v2 = ~s({"$version": 2, "theme": {"name": "house", "dark": "dark"}})
+      assert Document.from_json(v2) == {:ok, house}
+
+      # Version 1 (macaw_layers 0.2.4) wrote a built-in's name as a `$atom`: the step to
+      # version 2 makes it the string it spells. At version 2 a name is a string only.
+      v1 = ~s({"$version": 1, "theme": {"name": "house", "dark": {"$atom": "dark"}}})
+      assert Document.from_json(v1) == {:ok, house}
+      v1_named = ~s({"$version": 1, "theme": {"$atom": "dark"}})
+      assert Document.from_json(v1_named) == {:ok, Theme.dark()}
+
+      v2_atom = ~s({"$version": 2, "theme": {"name": "house", "dark": {"$atom": "dark"}}})
+      assert {:error, [{[:theme, :dark], _fault}]} = Document.from_json(v2_atom)
+
+      assert {:ok, json} = Document.to_json(house)
+      assert JSON.decode!(json)["theme"]["dark"] == "dark"
+      assert Document.from_map(%{theme: "dark"}) == {:ok, Theme.dark()}
+
+      assert Document.from_map(%{theme: %{dark: "night"}}) ==
+               {:error, [{[:theme, :dark], {:unknown_theme, "night"}}]}
     end
   end
 
