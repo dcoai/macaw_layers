@@ -18,7 +18,7 @@ defmodule Macaw.Layers.Var do
       %{fill: "blue"}
   """
 
-  alias Macaw.Layers.{Fragment, Names}
+  alias Macaw.Layers.{Callback, Fragment, Names}
   alias Macaw.Layers.Fragment.{Cascade, Compose}
 
   @enforce_keys [:name]
@@ -71,7 +71,7 @@ defmodule Macaw.Layers.Var do
   def bind(_type, fragment, bindings) when map_size(bindings) == 0, do: fragment
 
   def bind(type, fragment, bindings) do
-    if Fragment.callback?(type, :bind_holes, 4),
+    if Callback.exported?(type, :bind_holes, 4),
       do: walk_bind(type, type.root(), fragment, bindings),
       else: bind(fragment, bindings)
   end
@@ -147,7 +147,7 @@ defmodule Macaw.Layers.Var do
   defp variables(_type, _kind, _leaf, _path), do: []
 
   defp holes(type, kind, k, v, path) do
-    if Fragment.callback?(type, :holes, 3),
+    if Callback.exported?(type, :holes, 3),
       do: for(%__MODULE__{name: name} <- type.holes(kind, k, v), do: {path, name}),
       else: []
   end

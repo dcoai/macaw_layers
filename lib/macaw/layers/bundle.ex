@@ -21,7 +21,7 @@ defmodule Macaw.Layers.Bundle do
   @behaviour Macaw.Layers.Version
   @behaviour Macaw.Layers.Document
 
-  alias Macaw.Layers.{Document, Fault, Form, Fragment, Store, Version}
+  alias Macaw.Layers.{Callback, Document, Fault, Form, Fragment, Store, Version}
 
   defstruct provenance: nil, entries: [], snapshot: nil
 
@@ -174,7 +174,7 @@ defmodule Macaw.Layers.Bundle do
   end
 
   defp stamp(form, type) do
-    if Fragment.callback?(type, :current, 0),
+    if Callback.exported?(type, :current, 0),
       do: Map.put(form, Version.stamp(), type.current()),
       else: form
   end
@@ -265,7 +265,7 @@ defmodule Macaw.Layers.Bundle do
   # A fragment carries its type's stamp where the type has a version line, and migrates as
   # a document of the type does; the stamp is the line's, not data.
   defp migrate(form, type) do
-    if Fragment.callback?(type, :current, 0) do
+    if Callback.exported?(type, :current, 0) do
       with {:ok, form} <- Version.migrate(form, type),
            do: {:ok, Map.delete(form, Version.stamp())}
     else

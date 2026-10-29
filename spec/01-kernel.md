@@ -15,6 +15,7 @@ The kernel generalizes what visualize built for its designs, fragments, boards, 
 | `Macaw.Layers.Document`, `Macaw.Layers.Limits`, `Macaw.Layers.Scan` | the gates, in order | 5 |
 | `Macaw.Layers.Tags`, `Macaw.Layers.Form` | the map and JSON forms, and the `$` tag table | 6 |
 | `Macaw.Layers.Document.digest/1` | a canonical digest | 7 |
+| `Macaw.Layers.Callback` | optional callbacks, found whether or not their module is loaded | 9 |
 
 ## 1. Names {#kernel-names}
 
@@ -323,3 +324,13 @@ an atom key, an atom value and a tuple each raise ArgumentError naming the term
 <!-- surfex: deferred #100: untrusted strings and the URL policy are a proposal of their own -->
 
 **Untrusted strings are sanitized where they are read and escaped where they are written,** and **URLs are checked by a host policy** before a document may use one. Which strings and URLs a document holds is the document type's to say; the kernel supplies the checks so every type applies them the same way.
+
+## 9. Optional callbacks {#kernel-callbacks}
+
+**An optional callback is found whether or not its module is loaded.** A behavior's optional callbacks (a type's `encode_value/1`, `decode_value/2`, `identity/2`, `inline/2`, `current/0` and the rest) are asked for through `Macaw.Layers.Callback.exported?/3`, which loads the module before it answers. `function_exported?/3` alone answers `false` for a module the VM hasn't loaded yet, and modules load lazily in dev, test and `iex`: a bare check would take, silently, the path of a type that lacks the callback, depending on what ran first. A module that can't be loaded raises: a type that doesn't exist is a mistake, not a type without the callback.
+
+CI refuses a bare `function_exported?/3` anywhere in `lib/` but `Macaw.Layers.Callback` (`ci/callbacks.exs`).
+
+```test:callbacks-unloaded
+with the type module unloaded first, exported?/3 finds its callback, encode_term/2 writes the type's own value, from_map/2 reads it back, and the cascade replaces an element by its identity; a module that doesn't exist raises
+```

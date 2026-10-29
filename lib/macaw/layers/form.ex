@@ -30,7 +30,7 @@ defmodule Macaw.Layers.Form do
   no form: it is refused at its path as `{:type, :term}`.
   """
 
-  alias Macaw.Layers.{Document, Fault, Tags, Vocabulary}
+  alias Macaw.Layers.{Callback, Document, Fault, Tags, Vocabulary}
 
   @stamp "$version"
 
@@ -115,7 +115,7 @@ defmodule Macaw.Layers.Form do
   end
 
   defp own(type, term) do
-    if function_exported?(type, :encode_value, 1), do: type.encode_value(term), else: :default
+    if Callback.exported?(type, :encode_value, 1), do: type.encode_value(term), else: :default
   end
 
   defp term(v, _path, _type, _root?)
@@ -230,7 +230,7 @@ defmodule Macaw.Layers.Form do
       faults != [] ->
         {payload, faults}
 
-      function_exported?(type, :decode_value, 2) ->
+      Callback.exported?(type, :decode_value, 2) ->
         case type.decode_value(tag, payload) do
           {:ok, value} -> {value, []}
           :default -> {payload, [{path, {:unknown_tag, tag}}]}

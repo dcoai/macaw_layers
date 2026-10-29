@@ -130,15 +130,6 @@ defmodule Macaw.Layers.Fragment do
   def explain(type, layers) when is_list(layers), do: Cascade.explain(type, named(layers))
 
   @doc false
-  # Whether the type defines an optional callback. `function_exported?/3` alone answers
-  # false for a module not loaded yet, which would skip the callback silently.
-  @spec callback?(module(), atom(), arity()) :: boolean()
-  def callback?(type, name, arity) do
-    Code.ensure_loaded!(type)
-    function_exported?(type, name, arity)
-  end
-
-  @doc false
   # The layers as `{name, fragment}` pairs, a bare fragment named by its position.
   @spec named([layer()]) :: [{term(), map()}]
   def named(layers) do

@@ -15,7 +15,7 @@ defmodule Macaw.Layers.Composite do
   inlining of ids made the type's.
   """
 
-  alias Macaw.Layers.{Fragment, Use}
+  alias Macaw.Layers.{Callback, Fragment, Use}
 
   @typedoc """
   What `flatten/3` reports: every reference that showed through, `{id, at}`, `at` the use
@@ -43,7 +43,7 @@ defmodule Macaw.Layers.Composite do
           {:ok, map(), report()} | {:error, {:cycle, [Fragment.id()]}}
   def flatten(type, fragment, fetch) do
     with {:ok, flat, report} <- flatten(type, fragment, fetch, []) do
-      if Fragment.callback?(type, :inline, 2) do
+      if Callback.exported?(type, :inline, 2) do
         {inlined, unresolved} = type.inline(flat, fetch)
         {:ok, inlined, %{report | missing: report.missing ++ unresolved}}
       else

@@ -2,14 +2,14 @@ defmodule Macaw.Layers.Fragment.KindTest do
   # The fragment-type behavior, kinds and ids (spec/02 §1, §6.1, §6.2), over the test type.
   use ExUnit.Case, async: true
 
-  alias Macaw.Layers.{Fragment, Use, Var}
+  alias Macaw.Layers.{Callback, Fragment, Use, Var}
   alias Macaw.Layers.Test.Design
 
   describe "the type (spec/02 §1)" do
     @tag verifies: "fragments-type-callbacks"
     test "a type declares its root, keys, identities, kinds, wrappers and placement" do
       for {f, a} <- [root: 0, key: 2, identity: 2, kinds: 0, wrapper: 1, place: 3, merge: 3],
-          do: assert(Fragment.callback?(Design, f, a))
+          do: assert(Callback.exported?(Design, f, a))
 
       assert Design.root() == :design
       assert Design.key(:design, :marks) == %{merge: :concat, element: :mark}

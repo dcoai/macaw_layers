@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- An optional callback is found whether or not its module is loaded: `Macaw.Layers.Callback.exported?/3`, used by `Form`, the cascade and every other site, replaces `Fragment.callback?/3`; CI refuses a bare `function_exported?/3` (spec/01 §9, #4, macaw#136).
+
 ## v0.2.3 (2026-10-28)
 
 - The macaw logo in the docs and the README (macaw#175).

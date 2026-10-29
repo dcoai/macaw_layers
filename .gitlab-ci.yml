@@ -55,6 +55,14 @@ spec-links:
   script:
     - elixir ci/spec_links.exs
 
+# No bare function_exported?/3 in lib/ (ci/callbacks.exs, spec/01 §9): it skips an
+# optional callback of a module not loaded yet.
+callbacks:
+  image: $ELIXIR_IMAGE
+  stage: check
+  script:
+    - elixir ci/callbacks.exs
+
 test:
   extends: .elixir
   stage: test

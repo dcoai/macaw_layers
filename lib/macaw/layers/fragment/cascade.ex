@@ -13,6 +13,7 @@ defmodule Macaw.Layers.Fragment.Cascade do
   #
   # Ported from visualize's `Visualize.Chart.Stack`.
 
+  alias Macaw.Layers.Callback
   alias Macaw.Layers.Fragment.Compose
 
   @spec cascade(module(), map(), map()) :: map()
@@ -172,7 +173,7 @@ defmodule Macaw.Layers.Fragment.Cascade do
   end
 
   defp identity(type, kind, element) do
-    if kind != nil and node_map?(element) and function_exported?(type, :identity, 2),
+    if kind != nil and node_map?(element) and Callback.exported?(type, :identity, 2),
       do: type.identity(kind, element)
   end
 
