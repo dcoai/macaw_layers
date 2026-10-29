@@ -26,6 +26,13 @@ defmodule Macaw.Layers.Theme.Extension do
   (`Macaw.Layers.Theme.Document.from_json/2`'s `extensions:`), so no atom is made from a
   document.
 
+  `style_type/0`, optional, is the adopter's style type: a fragment type of a style node
+  (`Macaw.Layers.Fragment`, as `Macaw.Layers.Theme.Style` is) with its own hooks,
+  `normalize/4` and `under/3` (spec/02 §3.3), with which the theme stacks its palette
+  entries in place of `Macaw.Layers.Theme.Style`, in `style/2`, its list entries and its
+  contracts alike. At most one of a theme's extensions gives one; two raise
+  `ArgumentError` naming both.
+
   A theme carries its extensions in `extensions`, given explicitly and **default closed**:
   a palette or color name that neither the library nor an extension has is a fault naming
   it. The names an extension adds are held to the contracts of their group, its default
@@ -49,7 +56,12 @@ defmodule Macaw.Layers.Theme.Extension do
   values, a theme document's JSON form may spell.
   """
   @callback words() :: %{optional(:keys) => [atom()], optional(:atoms) => [atom()]}
-  @optional_callbacks words: 0
+  @doc """
+  The style type the theme stacks its palette entries with: a fragment type of a style
+  node with the adopter's own hooks (spec/02 §3.3).
+  """
+  @callback style_type() :: module()
+  @optional_callbacks words: 0, style_type: 0
 
   alias Macaw.Layers.Callback
   alias Macaw.Layers.Theme.Names
@@ -86,7 +98,31 @@ defmodule Macaw.Layers.Theme.Extension do
 
     owners(extensions, :styles, library_styles)
     owners(extensions, :colors, library_colors)
+    style_type!(extensions)
     extensions
+  end
+
+  # At most one extension gives the style type, and it is a fragment type.
+  defp style_type!(extensions) do
+    case Enum.filter(extensions, &Callback.exported?(&1, :style_type, 0)) do
+      [] ->
+        :ok
+
+      [ext] ->
+        type = ext.style_type()
+
+        if not (is_atom(type) and Callback.exported?(type, :root, 0) and
+                  Callback.exported?(type, :key, 2)) do
+          raise ArgumentError,
+                "extension #{inspect(ext.name())}: style_type/0 is a fragment type " <>
+                  "(Macaw.Layers.Fragment), got #{inspect(type)}"
+        end
+
+      [a, b | _] ->
+        raise ArgumentError,
+              "extensions #{inspect(a.name())} and #{inspect(b.name())} both give a " <>
+                "style type; a theme stacks its palette with one"
+    end
   end
 
   defp words?(%{} = words) when not is_struct(words) do
@@ -156,6 +192,16 @@ defmodule Macaw.Layers.Theme.Extension do
         atoms: Enum.uniq(acc.atoms ++ Map.get(words, :atoms, []))
       }
     end)
+  end
+
+  @doc false
+  # The style type the palette stacks with: the one an extension gives, else the library's.
+  @spec style_type([module()]) :: module()
+  def style_type(extensions) do
+    case Enum.find(extensions, &Callback.exported?(&1, :style_type, 0)) do
+      nil -> Macaw.Layers.Theme.Style
+      ext -> ext.style_type()
+    end
   end
 
   defp own_words(ext),

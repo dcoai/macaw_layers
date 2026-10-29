@@ -3,6 +3,7 @@ defmodule Macaw.Layers.Theme.Palette do
 
   import Macaw.Layers.Names, only: [is_name: 1]
 
+  alias Macaw.Layers.Fragment
   alias Macaw.Layers.Theme.Names
 
   # The style palette of a theme (spec/04 §2.4, visualize D-171, D-172): its fixed names in five
@@ -151,20 +152,20 @@ defmodule Macaw.Layers.Theme.Palette do
 
   @doc false
   # The entry `name` of a palette as one style node in its parts (spec/04 §2.4): a
-  # node as it is, a name or a list of palette names and nodes stacked left to right by the
-  # merge rule — each name the palette's own entry, else the built-in one. `{:error,
-  # message}` for a name the palette does not have, a list that reaches itself, or an
-  # element that is no style.
-  @spec compose(map(), String.t(), map()) :: {:ok, map()} | {:error, String.t()}
-  def compose(styles, name, extra \\ %{}), do: compose(styles, extra, name, [])
+  # node as it is, a name or a list of palette names and nodes stacked left to right by
+  # `type`, the style type (`Macaw.Layers.Theme.Style` or an extension's) — each name the
+  # palette's own entry, else the built-in one. `{:error, message}` for a name the palette
+  # does not have, a list that reaches itself, or an element that is no style.
+  @spec compose(map(), String.t(), map(), module()) :: {:ok, map()} | {:error, String.t()}
+  def compose(styles, name, extra, type), do: compose(styles, extra, type, name, [])
 
-  defp compose(styles, extra, name, seen) do
+  defp compose(styles, extra, type, name, seen) do
     entry = Map.get(styles, name) || Map.get(@builtin, name) || default(extra, name)
 
     cond do
       name in seen -> {:error, "a list that reaches itself through #{inspect(name)}"}
       entry == nil -> {:error, "#{inspect(name)} in a list is not a name of the palette"}
-      true -> layer(styles, extra, entry, [name | seen])
+      true -> layer(styles, extra, type, entry, [name | seen])
     end
   end
 
@@ -175,38 +176,31 @@ defmodule Macaw.Layers.Theme.Palette do
     end
   end
 
-  defp layer(styles, extra, entries, seen) when is_list(entries) do
-    Enum.reduce_while(entries, {:ok, %{}}, fn entry, {:ok, node} ->
-      case layer(styles, extra, entry, seen) do
-        {:ok, laid} -> {:cont, {:ok, merge(node, laid)}}
+  # A list is the stack of its layers by the style type, a left fold (spec/02 §3.3), each
+  # layer laid first.
+  defp layer(styles, extra, type, entries, seen) when is_list(entries) do
+    entries
+    |> Enum.reduce_while({:ok, []}, fn entry, {:ok, nodes} ->
+      case layer(styles, extra, type, entry, seen) do
+        {:ok, laid} -> {:cont, {:ok, [laid | nodes]}}
         error -> {:halt, error}
       end
     end)
+    |> case do
+      {:ok, nodes} -> {:ok, Fragment.stack(type, Enum.reverse(nodes))}
+      error -> error
+    end
   end
 
   # A palette name: a string, as every name of a theme is, an atom read as its string.
-  defp layer(styles, extra, name, seen) when is_name(name),
-    do: compose(styles, extra, Names.name(name), seen)
+  defp layer(styles, extra, type, name, seen) when is_name(name),
+    do: compose(styles, extra, type, Names.name(name), seen)
 
-  defp layer(_styles, _extra, node, _seen) when is_map(node) and not is_struct(node),
+  defp layer(_styles, _extra, _type, node, _seen) when is_map(node) and not is_struct(node),
     do: {:ok, node}
 
-  defp layer(_styles, _extra, other, _seen),
+  defp layer(_styles, _extra, _type, other, _seen),
     do: {:error, "an entry is a style node, a map of style keys, got #{inspect(other)}"}
-
-  @doc false
-  # Two style nodes stacked: a part both give merges key by key, the higher's word at each
-  # key; anything else is the higher's.
-  @spec merge(map(), map()) :: map()
-  def merge(lower, higher) do
-    Map.merge(lower, higher, fn
-      _part, a, b when is_map(a) and is_map(b) and not is_struct(a) and not is_struct(b) ->
-        Map.merge(a, b)
-
-      _part, _a, b ->
-        b
-    end)
-  end
 
   @doc false
   # The style series names a palette holds, `"style_1"` up to the first gap, in order; the
@@ -244,18 +238,19 @@ defmodule Macaw.Layers.Theme.Palette do
   @doc false
   # `:ok`, or `{:error, {:style, name}, message}` for the first entry that breaks its
   # contract, in the order of `names/1` and then any name the palette does not know.
-  @spec check(map(), map()) :: :ok | {:error, {:style, String.t()}, String.t()}
-  def check(styles, extra \\ %{}) when is_map(styles) do
-    case violations(styles, extra) do
+  @spec check(map(), map(), module()) :: :ok | {:error, {:style, String.t()}, String.t()}
+  def check(styles, extra, type) when is_map(styles) do
+    case violations(styles, extra, type) do
       [] -> :ok
       [{subject, message} | _] -> {:error, subject, message}
     end
   end
 
   @doc false
-  # Every entry that breaks its contract, `{{:style, name}, message}`, in `check/1`'s order.
-  @spec violations(map(), map()) :: [{{:style, String.t()}, String.t()}]
-  def violations(styles, extra \\ %{}) when is_map(styles) do
+  # Every entry that breaks its contract, `{{:style, name}, message}`, in `check/1`'s order,
+  # each list entry stacked by the style type `type`.
+  @spec violations(map(), map(), module()) :: [{{:style, String.t()}, String.t()}]
+  def violations(styles, extra, type) when is_map(styles) do
     own = own_series(styles)
     known = names(own, extra)
 
@@ -264,14 +259,14 @@ defmodule Macaw.Layers.Theme.Palette do
     entries =
       for name <- known,
           {:ok, entry} <- [fetch(styles, extra, name)],
-          {:error, message} <- [entry(name, entry, styles, extra)],
+          {:error, message} <- [entry(name, entry, styles, extra, type)],
           do: {{:style, name}, message}
 
     unknown =
       for name <- styles |> Map.keys() |> Enum.reject(&(&1 in known)) |> Enum.sort(),
           do: {{:style, name}, unknown(name, own)}
 
-    entries ++ neighbors(styles, own) ++ unknown
+    entries ++ neighbors(styles, own, type) ++ unknown
   end
 
   defp fetch(styles, extra, name) do
@@ -286,22 +281,22 @@ defmodule Macaw.Layers.Theme.Palette do
 
   # A list — or a name — is held to the contracts by what it stacks into; a node
   # in it, as a node alone, may not use `extends`.
-  defp entry(name, entry, styles, extra)
+  defp entry(name, entry, styles, extra, type)
        when is_list(entry) or is_name(entry) do
     with :ok <- no_extends(List.wrap(entry)),
-         {:ok, node} <- layer(styles, extra, entry, [name]) do
-      entry(name, node, styles, extra)
+         {:ok, node} <- layer(styles, extra, type, entry, [name]) do
+      entry(name, node, styles, extra, type)
     end
   end
 
-  defp entry(_name, entry, _styles, _extra) when not is_map(entry) or is_struct(entry),
+  defp entry(_name, entry, _styles, _extra, _type) when not is_map(entry) or is_struct(entry),
     do: {:error, "an entry is a style node, a map of style keys, got #{inspect(entry)}"}
 
-  defp entry(_name, %{extends: parent}, _styles, _extra),
+  defp entry(_name, %{extends: parent}, _styles, _extra, _type),
     do:
       {:error, "a palette entry is flat and may not use extends, got extends: #{inspect(parent)}"}
 
-  defp entry(name, entry, _styles, extra) do
+  defp entry(name, entry, _styles, extra, _type) do
     with :ok <- cues(name, entry),
          :ok <- paints(entry),
          do: group(group_of(name, extra), entry)
@@ -334,7 +329,7 @@ defmodule Macaw.Layers.Theme.Palette do
   defp no_extends(entries) do
     case Enum.find(entries, &match?(%{extends: _}, &1)) do
       nil -> :ok
-      %{extends: parent} -> entry(nil, %{extends: parent}, %{}, %{})
+      %{extends: parent} -> entry(nil, %{extends: parent}, %{}, %{}, nil)
     end
   end
 
@@ -482,7 +477,7 @@ defmodule Macaw.Layers.Theme.Palette do
   # Each style series entry beside the next, the last beside the first, since `{:style, i}`
   # cycles: they differ in something besides the colors of their fill and stroke. One
   # entry is its own neighbor.
-  defp neighbors(styles, own) do
+  defp neighbors(styles, own, type) do
     pairs =
       case own do
         [] -> []
@@ -491,8 +486,8 @@ defmodule Macaw.Layers.Theme.Palette do
       end
 
     for {a, b} <- pairs,
-        {:ok, entry_a} <- [compose(styles, a, %{})],
-        {:ok, entry_b} <- [compose(styles, b, %{})],
+        {:ok, entry_a} <- [compose(styles, a, %{}, type)],
+        {:ok, entry_b} <- [compose(styles, b, %{}, type)],
         hueless(entry_a) == hueless(entry_b),
         do: {{:style, b}, neighbor(a, b)}
   end

@@ -441,7 +441,7 @@ defmodule Macaw.Layers.Theme do
   # A theme `new/1` built holds no entry that does not compose; a struct written by hand
   # may, and its entry then lays nothing.
   defp composed(theme, name) do
-    case Palette.compose(own_styles(theme), name, extra_styles(theme)) do
+    case Palette.compose(own_styles(theme), name, extra_styles(theme), style_type(theme)) do
       {:ok, node} -> node
       {:error, _message} -> %{}
     end
@@ -456,6 +456,15 @@ defmodule Macaw.Layers.Theme do
     do: Extension.styles(extensions)
 
   def extra_styles(%__MODULE__{}), do: %{}
+
+  @doc false
+  # The style type the palette stacks with (§2.4, §3.4): an extension's, else
+  # `Macaw.Layers.Theme.Style`.
+  @spec style_type(t()) :: module()
+  def style_type(%__MODULE__{extensions: extensions}) when is_list(extensions),
+    do: Extension.style_type(extensions)
+
+  def style_type(%__MODULE__{}), do: Macaw.Layers.Theme.Style
 
   defp cued(name, entry) do
     if name in @role_slots and is_map(entry) do
@@ -649,7 +658,9 @@ defmodule Macaw.Layers.Theme do
           {:error, subject, message} <- [Contract.check(%{}, roles)],
           do: {subject, message}
 
-    palette_faults = Palette.violations(own_styles(theme), extra_styles(theme))
+    palette_faults =
+      Palette.violations(own_styles(theme), extra_styles(theme), style_type(theme))
+
     broken = for {{:style, name}, _message} <- palette_faults, do: name
 
     # The role styles as a set and every palette color name, once the table reads.

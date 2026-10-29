@@ -350,6 +350,8 @@ A theme chooses only how many style series it has, at most 64 with no gap, and h
 
 **An entry is a style node in parts, written in slots:** its keys are the parts `fill`, `stroke`, `font`, `text`, `effect`, `marker`, `curve`, and `opacity`, `blend` and `class`. Its colors are typed values or slots, never literals where a slot says the same, and never text (a string paint color is refused, §2.6) (`fill: %{type: :solid, color: {:color, "bad"}}`, `stroke: %{type: :solid, color: {:series, 3}, width: 1.5}`, `font: %{size: :label_size}`). A bare atom in a paint's color is the typed color it names, its name a string (`color: :text` is held as `{:color, "text"}`). An entry's keys and atom values are words, kept as given (§2.1). In a role's entry, `stroke: %{dash: :cue}` and `marker: %{shape: :cue}` take the role's cue. An entry may be **a list** of palette names and nodes, stacked left to right. It may not use `extends`: the palette is the end of every chain. Entries may be partial: a state or a modifier gives a few keys.
 
+**A style node is a fragment type, `Macaw.Layers.Theme.Style`** (spec/02 §1), and a list entry is `Fragment.stack/2` of its layers, each name laid as its entry first: a left fold (spec/02 §3.2–§3.3). Its root is `:style` and every key of it a part, `%{merge: :override, node: :part}`: a part both layers give as a map merges key by key, the higher's word at each key, and a part's own keys are taken whole; any other value, a struct included, is the higher's. It has no hooks. A theme stacks with it unless an extension gives its own style type (§3.4), and every reading of the palette stacks with the same type: `style/2`, the list entries, and the contracts, which hold an entry to what it stacks into (§2.6).
+
 **The built-in palette**, the same entries on every built-in theme, each taking that theme's colors:
 
 | Name | Entry |
@@ -378,6 +380,10 @@ A theme chooses only how many style series it has, at most 64 with no gap, and h
 
 ```test:themes-palette-entries
 the built-in palette gives every entry of the table on every built-in theme; style resolves cues and cycles style positions; a missing entry falls back to the default's whole; a theme cannot add a name; a list entry stacks and may not reach itself
+```
+
+```test:themes-palette-style-type
+over generated style nodes, Theme.Style's stack of two layers and of a list is the two-level merge, a part merged key by key and anything else the higher's; a theme with no extension's style type stacks with it
 ```
 
 ### 2.5 The built-in themes {#themes-builtins}
@@ -502,13 +508,20 @@ a document's palette entry beats the theme's, the theme's the default's and the 
 | `styles() :: %{name => {group, entry}}` | palette names it adds, each in a group of §2.4 (`:state`, `:furniture`, `:modifier`), with its default entry |
 | `colors() :: %{name => color}` | names it adds to the color table, each with a default value: a color value of §1.3, a literal `%Color{}` or a typed color, or pinned steps of literals; text raises `ArgumentError` naming the extension |
 | `words() :: %{keys: [atom], atoms: [atom]}`, optional | the words its styles and defaults use beyond the library's: the keys and the atom values a theme document's JSON form may spell (§5) |
+| `style_type() :: module`, optional | the adopter's style type: a fragment type of a style node with its own `normalize/4` and `under/3` (spec/02 §3.3), which the theme stacks its palette with in place of `Theme.Style` (§2.4) |
 
 A theme carries its extensions in `extensions`, given explicitly (`new(extensions: [MyApp.Marks])`). The list is **default closed**: a palette name or color name that neither the library nor an extension has is a fault naming it. **An extension's names are strings in the theme,** as the library's are (§2.1): a name `styles/0` or `colors/0` gives as an atom (`lane:`), and the names in its entries' typed colors, are read as their strings by the theme's one normalization, and a name given both ways in one map raises `ArgumentError` naming the extension. The names an extension adds are held to the contracts of their group, its default entries included: a state's, a modifier's, and a furniture entry's as text furniture's when it has a font part and as the grid's otherwise. An extension's names follow the library's in `style_names/1` and `color_names/1`. Two extensions adding one name, an extension adding a library name, or a style in another group, raise `ArgumentError` naming both.
 
 **An adopter's words are the JSON reader's vocabulary, never the theme's.** A theme built in Elixir keeps its words as given (§2.1), whatever an extension registers. `words/0` serves the theme document (§5): `to_json/1` writes the theme's words with its extensions' keys, and `from_json/2` makes atoms of the library's words and those of the extensions it is given (`extensions:`), and of no other. A theme whose styles or defaults use an adopter's words reads back from its JSON form only with that adopter's extension given; without it, a word the reader may not make is refused at its path (an atom value `{:enum, allowed}`).
 
+**An adopter's style grammar is its style type.** A theme whose extension gives `style_type/0` stacks every palette entry with it: `style/2`, a list entry and the contracts read one node, so a rule of the adopter's (visualize D-172: a gradient laid over a solid paint drops its color) holds in all three. **At most one** of a theme's extensions gives a style type, since two would each decide how one node stacks: two raise `ArgumentError` naming both, and a style type that is no fragment type (no `root/0` and `key/2`) raises naming the extension. A list entry is still a left fold, so where the style type trims, how its layers are grouped matters (spec/02 §3.3).
+
 ```test:themes-extensions-registered
 a registered extension's names are in the palette and the table with their defaults, held to their group's contracts; an unregistered name is a fault naming it; two extensions adding one name raise naming both
+```
+
+```test:themes-extensions-style-type
+an extension's style type with an under/3 that drops a solid's color under a gradient decides the entry style/2 and compose answer and what the contracts judge; two extensions giving a style type raise naming both, and a style type that is no fragment type raises
 ```
 
 ```test:themes-extension-words

@@ -49,6 +49,11 @@ The JSON adapter tells a name map from a node by the type's positions (spec/01 �
 - `%Theme{}`'s `name`, `dark` and `light` are strings, the built-ins' included: `Theme.default().name` is `"default"` (was `:default`), `default().dark` `"dark"`, `dark().light` `"default"`, `color_safe/0` and `print/0` named `"color_safe"` and `"print"`. Atom input is normalized once, at construction (`new/1`, `merge/2`, a document read), so `new(name: :house)` and `new(name: "house")` are one theme and `new(dark: :dark)` is `new(dark: "dark")`. `Theme.builtin/1` takes either spelling (`builtin("dark") == builtin(:dark)`); `Theme.builtins/0` (internal) answers strings. Fault messages name the theme as its string (`theme "default": …`).
 - `Theme.Document` writes the three as JSON strings (`"dark": "dark"`, where it wrote `{"$atom": "dark"}`) and reads them as strings; a version 1 (v0.2.4) document's `{"$atom": "dark"}` migrates to `"dark"` in the step to version 2, and is refused at version 2; a `name` that is not a string is `{:type, :string}`. The stylesheet's theme classes are unchanged (`.mw-theme-color-safe`).
 
+The palette stacks as a fragment type, and an adopter gives its style type (spec/04 §2.4, §3.4, spec/02 §3.3, #14, macaw#188, macaw#181).
+
+- `Macaw.Layers.Theme.Style` is a style node as a fragment type: root `:style`, every part `%{merge: :override, node: :part}`, no hooks. A list entry of the palette is `Fragment.stack/2` of its layers, a left fold, in `style/2`, `check/1` and `violations/1` alike; for a theme with no extension's style type every entry is as before.
+- `Theme.Extension` gains an optional `style_type/0`: an adopter's fragment type of a style node with its own `normalize/4` and `under/3`, which the theme stacks its palette with in place of `Theme.Style` (visualize D-172: a gradient over a solid paint drops its color). At most one extension per theme gives one; two raise `ArgumentError` naming both, and a module that is no fragment type raises naming the extension.
+
 ## v0.2.4 (2026-10-29)
 
 Additive: the hooks visualize needs to adopt the cascade and composites (macaw#179, macaw#183, visualize#963), and a load-order fix.

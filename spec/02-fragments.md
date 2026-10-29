@@ -119,6 +119,8 @@ stack is the left fold and associative wherever no layer gives a mergeable key a
 
 **A trim is a replacement,** as a struct at a mergeable key is (§3.2): what an intermediate layer's type change drops, a later layer can't bring back, so how the layers are grouped matters. A dashed paint, then an untyped paint naming red, then a gradient: folded left, red is dropped with the dashed type; grouped the other way, red meets the gradient untrimmed. So `stack/2` of a list is its left fold, which is what `explain/2` reports, and it is associative wherever no layer's type change trims. No rule that drops keys on a type change can be associative, whichever node it reads: an intermediate layer can drop a key a later one would keep.
 
+A theme's style nodes are a fragment type, `Macaw.Layers.Theme.Style`, with no hooks; an adopter's hooks reach a theme's palette through an extension's style type (spec/04 §2.4, §3.4).
+
 **Provenance follows the normalized parts.** A leaf that came from a value a layer set whole and the type expanded is reported as that layer's: `explain/2` gives a leaf the layer of its own path, else of the nearest path above it a layer set.
 
 ```test:fragments-hooks-normalize
