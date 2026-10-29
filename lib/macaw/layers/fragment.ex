@@ -81,11 +81,11 @@ defmodule Macaw.Layers.Fragment do
   @callback normalize(kind(), term(), lower :: term(), higher :: term()) :: {term(), term()}
 
   @doc """
-  The keys of a lower node of `kind` that `higher`, merging over it, keeps (spec/02 §3.3):
-  `:all`, or the keys to keep, so a node whose type changes drops what the new type
-  doesn't take. It reads only the higher node, so the cascade stays associative.
+  What of a lower node of `kind` the higher one, merging over it, keeps (spec/02 §3.3): a
+  node whose type changes keeps of the lower only what the new type still takes. A trim
+  is a replacement, so a stack where one happens is its left fold (§3.2).
   """
-  @callback under(kind(), higher :: map()) :: :all | [term()]
+  @callback under(kind(), lower :: map(), higher :: map()) :: map()
 
   @doc "Every id left at a reference site of a flattened document resolved through `fetch`."
   @callback inline(map(), (id() -> {:ok, map()} | :error)) :: {map(), [{id(), list()}]}
@@ -98,7 +98,7 @@ defmodule Macaw.Layers.Fragment do
                       bind_holes: 4,
                       merge: 3,
                       normalize: 4,
-                      under: 2,
+                      under: 3,
                       inline: 2,
                       decompose: 1
 

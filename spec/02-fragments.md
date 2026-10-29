@@ -29,7 +29,7 @@ A **fragment** is a document of a type, or any part of one: a map with the type'
 | `bind_holes(kind, key, value, bindings) :: term()` *(optional)* | that value with its holes substituted, written back in the type's syntax (§5.1) |
 | `merge(rule_name, lower, higher) :: term()` *(optional)* | the type's own merge of a key whose rule is `{:type, rule_name}` (§2) |
 | `normalize(kind, key, lower, higher) :: {lower, higher}` *(optional)* | the two values of a key both fragments hold, as they merge: a shorthand on one side expanded to the part the other gives (§3.3) |
-| `under(kind, higher) :: :all \| [key]` *(optional)* | the keys of a lower node of `kind` that `higher`, merging over it, keeps (§3.3) |
+| `under(kind, lower, higher) :: lower` *(optional)* | what of a lower node of `kind` the higher one, merging over it, keeps (§3.3) |
 | `inline(document, fetch) :: {document, [{id, path}]}` *(optional)* | every id left at a reference site of a flattened document resolved through `fetch`, and the ids that were missing (§8.1) |
 | `decompose(document) :: [Use.t()]` *(optional)* | a whole document as inline sites, one kind each (§8.2) |
 
@@ -96,7 +96,7 @@ For each key present in either layer, by the key's spec in the node kind being m
 - **`:override`** — the higher value, except that a node both give as a map cascades key by key.
 - **`{:type, name}`** — the type's merge, the lower first.
 
-A key one layer alone carries is passed through untouched, so a fragment that is never stacked is never rewritten. Every rule cascades **associatively where every layer gives a mergeable key as a map** (a `:union` key as a name map, a node key as a node), so a stack built in parts is the stack of the whole. The exception is a layer that gives a mergeable key as a **struct**: it *replaces* the declaration, and a replacement in the middle of a stack is not recoverable by regrouping, so `stack/2` of a list is defined as the left fold, which is what `explain/2` reports. This is the second reason `compose/3` reports the pair as a conflict (visualize D-92).
+A key one layer alone carries is passed through untouched, so a fragment that is never stacked is never rewritten. Every rule cascades **associatively where every layer gives a mergeable key as a map** (a `:union` key as a name map, a node key as a node), so a stack built in parts is the stack of the whole, unless the type trims a node whose type changes (`under/3`, §3.3). The other exception is a layer that gives a mergeable key as a **struct**: it *replaces* the declaration, and a replacement in the middle of a stack is not recoverable by regrouping, so `stack/2` of a list is defined as the left fold, which is what `explain/2` reports. This is the second reason `compose/3` reports the pair as a conflict (visualize D-92).
 
 **The two agree where the fragments are disjoint.** Over two fragments that declare no `:union` or `:deep` name and no `:override` key in common, `stack` is the map `compose` answers: the property that holds the two definitions together as a type's rules grow.
 
@@ -113,7 +113,9 @@ stack is the left fold and associative wherever no layer gives a mergeable key a
 **Two optional callbacks let a type say how its own nodes merge,** in `compose/3`, `stack/2` and `explain/2` alike, so the three never disagree. A type without them merges exactly as §3.1 and §3.2 say.
 
 - **`normalize(kind, key, lower, higher)`** runs for a key **both** fragments hold, before its rule, and answers the two values the rule then merges. A type expands a shorthand written on one side to the part the other side gives (visualize's style parts: `stroke: "red"` against `stroke: %{width: 2}` is a solid part of color red), so the two merge key by key and `explain/2` reports one leaf per part. A key one fragment alone holds is never normalized: a fragment that is not merged is not rewritten.
-- **`under(kind, higher)`** runs where two nodes of `kind` merge, and names the keys of the lower node the higher keeps: `:all`, or a list, the rest dropped before the merge. A node whose type changes keeps of the lower only what the new type takes (visualize D-172: a dashed paint under a gradient keeps its width, not its dash). **It reads only the higher node,** so whatever it answers, the trimmed lower is a filter the higher alone decides, and the cascade stays associative (§3.2): a stack built in parts is still the stack of the whole.
+- **`under(kind, lower, higher)`** runs where two nodes of `kind` merge, and answers what of the lower node the higher keeps, before the merge. A node whose type changes keeps of the lower only what no type decides (visualize D-172: a dashed paint under a gradient keeps its width, not its dash); a node of the same type, or a lower node of none, keeps all.
+
+**A trim is a replacement,** as a struct at a mergeable key is (§3.2): what an intermediate layer's type change drops, a later layer can't bring back, so how the layers are grouped matters. A dashed paint, then an untyped paint naming red, then a gradient: folded left, red is dropped with the dashed type; grouped the other way, red meets the gradient untrimmed. So `stack/2` of a list is its left fold, which is what `explain/2` reports, and it is associative wherever no layer's type change trims. No rule that drops keys on a type change can be associative, whichever node it reads: an intermediate layer can drop a key a later one would keep.
 
 **Provenance follows the normalized parts.** A leaf that came from a value a layer set whole and the type expanded is reported as that layer's: `explain/2` gives a leaf the layer of its own path, else of the nearest path above it a layer set.
 
@@ -122,11 +124,15 @@ a shorthand against a part merges as the part key by key, in stack and compose a
 ```
 
 ```test:fragments-hooks-under
-a node whose type changes keeps of the lower only the keys the higher names, a node of the same type or of none keeps all, a deep entry and compose are trimmed the same way, and over generated layers stack stays associative with the hooks
+a node whose type changes keeps of the lower only what no type decides, a node of the same type keeps all, a lower node of no type keeps all under a typed one, and a deep entry and compose are trimmed the same way
+```
+
+```test:fragments-hooks-left-fold
+a stack where a type change trims is its left fold, and grouped otherwise differs; over generated layers that never change a node's type, stack with the hooks is associative
 ```
 
 ```test:fragments-hooks-without
-a type without normalize/4 and under/2 merges exactly as before
+a type without normalize/4 and under/3 merges exactly as before
 ```
 
 ## 4. Masks {#fragments-masks}

@@ -59,16 +59,11 @@ defmodule Macaw.Layers.Fragment.Compose do
   end
 
   @doc false
-  # The lower node, of what the higher keeps of it (spec/02 §3.3): all of it for a type
-  # without `under/2`.
+  # What of the lower node the higher keeps (spec/02 §3.3): all of it for a type without
+  # `under/3`.
   @spec under(module(), atom(), map(), map()) :: map()
   def under(type, kind, lower, higher) do
-    with true <- Callback.exported?(type, :under, 2),
-         keys when is_list(keys) <- type.under(kind, higher) do
-      Map.take(lower, keys)
-    else
-      _all -> lower
-    end
+    if Callback.exported?(type, :under, 3), do: type.under(kind, lower, higher), else: lower
   end
 
   @doc false

@@ -4,7 +4,7 @@ defmodule Macaw.Layers.Test.Sheet do
   # style parts: a style's `stroke` and `fill` are paints, written either as a shorthand
   # color or as a part `%{type, color, width, …}`. The shorthand normalizes to a solid part
   # when the other layer gives a part, and a paint whose type changes keeps of the lower
-  # only `width`, which no type decides, and the keys its own type takes.
+  # only `width`, which no type decides (visualize's `Parts.under/3`).
   @behaviour Macaw.Layers.Fragment
 
   @keys %{
@@ -15,9 +15,6 @@ defmodule Macaw.Layers.Test.Sheet do
       opacity: %{merge: :override}
     }
   }
-
-  # The keys each paint type takes; `width` is decided by none.
-  @takes %{solid: [:color], dashed: [:color, :dash], gradient: [:from, :to, :angle]}
 
   def root, do: :sheet
   def key(kind, key), do: @keys |> Map.get(kind, %{}) |> Map.get(key)
@@ -31,8 +28,8 @@ defmodule Macaw.Layers.Test.Sheet do
 
   def normalize(_kind, _key, lower, higher), do: {lower, higher}
 
-  def under(:paint, %{type: type}), do: [:type, :width | Map.get(@takes, type, [])]
-  def under(_kind, _higher), do: :all
+  def under(:paint, %{type: t1} = lower, %{type: t2}) when t1 != t2, do: Map.take(lower, [:width])
+  def under(_kind, lower, _higher), do: lower
 
   defp part(color) when is_binary(color), do: %{type: :solid, color: color}
   defp part(part), do: part
