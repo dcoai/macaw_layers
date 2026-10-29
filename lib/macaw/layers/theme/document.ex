@@ -2,10 +2,7 @@ defmodule Macaw.Layers.Theme.Tags do
   @moduledoc false
   # The tag table of a theme document (spec/01 §6): the color tags and `$var`, read so a
   # variable is refused by name rather than as an unknown tag.
-  use Macaw.Layers.Tags,
-    live:
-      ~w($var $color $series $ramp $blend $contrast $steps) ++
-        ~w($intensity $alpha $lighten $darken $saturate $shade)
+  use Macaw.Layers.Tags, live: ["$var" | Macaw.Layers.Color.Form.tags()]
 end
 
 defmodule Macaw.Layers.Theme.Document do

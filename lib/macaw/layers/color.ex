@@ -7,6 +7,11 @@ defmodule Macaw.Layers.Color do
       color |> Macaw.Layers.Color.darker() |> Macaw.Layers.Color.to_hex()
       #=> "#044279"
 
+  A literal color is the term `%Macaw.Layers.Color{}`, every field a float in its range
+  (`literal?/1`), whatever constructor built it. CSS text is an encoding of one, read and
+  written at the edges (spec/04 §1.6): `parse!/1` and `~RGB"#3b6fa8"` in, `to_css/1` out,
+  and `Macaw.Layers.Color.Form` for JSON.
+
   `parse/1` reads untrusted text and answers `nil` for anything it does not read; it never
   raises. Lab is CIE L\\*a\\*b\\* against D50 with d3-color's constants, so `lab/4` of
   `to_lab/1` is the color again; OKLab is Ottosson's, and a color built from OKLab or
@@ -18,13 +23,17 @@ defmodule Macaw.Layers.Color do
 
   alias Macaw.Layers.Color.{Names, Ok, Typed}
 
-  defstruct r: 0, g: 0, b: 0, opacity: 1.0
+  defstruct r: 0.0, g: 0.0, b: 0.0, opacity: 1.0
 
+  @typedoc """
+  A literal color (spec/04 §1.1): every field a float, `r`, `g` and `b` in `0..255` and
+  `opacity` in `0..1`, as every constructor builds it (`literal?/1`).
+  """
   @type t :: %__MODULE__{
-          r: number(),
-          g: number(),
-          b: number(),
-          opacity: number()
+          r: float(),
+          g: float(),
+          b: float(),
+          opacity: float()
         }
 
   # The D50 white point, with the sRGB matrices Bradford-adapted to it, as d3-color has them:
@@ -42,16 +51,19 @@ defmodule Macaw.Layers.Color do
   # Brighter/darker constant
   @kn 18
 
+  # A theme's name (`name?/1`).
+  @name ~r/\A[a-z][a-z0-9_]*\z/
+
   # -- constructors ------------------------------------------------------------------------
 
   @doc "Creates a color from RGB values (0-255)"
   @spec rgb(number(), number(), number(), number()) :: t()
   def rgb(r, g, b, opacity \\ 1.0) do
     %__MODULE__{
-      r: clamp(r, 0, 255),
-      g: clamp(g, 0, 255),
-      b: clamp(b, 0, 255),
-      opacity: clamp(opacity, 0, 1)
+      r: channel(r),
+      g: channel(g),
+      b: channel(b),
+      opacity: fraction(opacity)
     }
   end
 
@@ -65,12 +77,7 @@ defmodule Macaw.Layers.Color do
 
     {r, g, b} = hsl_to_rgb(h, s, l)
 
-    %__MODULE__{
-      r: round(r * 255),
-      g: round(g * 255),
-      b: round(b * 255),
-      opacity: clamp(opacity, 0, 1)
-    }
+    rgb(round(r * 255), round(g * 255), round(b * 255), opacity)
   end
 
   @doc "Creates a color from Lab values (l: 0-100, a: -128 to 127, b: -128 to 127)"
@@ -90,12 +97,7 @@ defmodule Macaw.Layers.Color do
     g = xyz_rgb(-0.9787684 * x + 1.9161415 * y + 0.0334540 * z)
     b_val = xyz_rgb(0.0719453 * x - 0.2289914 * y + 1.4052427 * z)
 
-    %__MODULE__{
-      r: round(clamp(r, 0, 255)),
-      g: round(clamp(g, 0, 255)),
-      b: round(clamp(b_val, 0, 255)),
-      opacity: clamp(opacity, 0, 1)
-    }
+    rgb(round(clamp(r, 0, 255)), round(clamp(g, 0, 255)), round(clamp(b_val, 0, 255)), opacity)
   end
 
   @doc "Creates a color from HCL values (h: 0-360, c: 0-~230, l: 0-100)"
@@ -131,6 +133,94 @@ defmodule Macaw.Layers.Color do
   end
 
   def parse(_), do: nil
+
+  @doc """
+  The color `text` spells, as `parse/1` reads it (spec/04 §1.6): the input edge for text a
+  program holds. Text `parse/1` does not read raises `ArgumentError` naming it.
+
+      iex> Macaw.Layers.Color.parse!("#3b6fa8")
+      %Macaw.Layers.Color{r: 59.0, g: 111.0, b: 168.0, opacity: 1.0}
+
+  """
+  @spec parse!(String.t()) :: t()
+  def parse!(text) do
+    parse(text) ||
+      raise ArgumentError,
+            "not a color: #{inspect(text)}; a color is hex, rgb(), hsl() or a CSS keyword " <>
+              "(spec/04 §1.1)"
+  end
+
+  @doc """
+  A literal color written in the source, `~RGB"#3b6fa8"` (spec/04 §1.6): the text is read
+  by `parse/1` when the code compiles and the color is compiled in, so text it does not
+  read is a `CompileError` there, never a fault at run time. Import it with
+  `import Macaw.Layers.Color, only: [sigil_RGB: 2]`.
+
+      iex> import Macaw.Layers.Color, only: [sigil_RGB: 2]
+      iex> ~RGB"steelblue"
+      %Macaw.Layers.Color{r: 70.0, g: 130.0, b: 180.0, opacity: 1.0}
+
+  """
+  defmacro sigil_RGB({:<<>>, _meta, [text]}, []) when is_binary(text) do
+    case parse(text) do
+      %__MODULE__{} = color ->
+        Macro.escape(color)
+
+      nil ->
+        raise CompileError,
+          file: __CALLER__.file,
+          line: __CALLER__.line,
+          description: "~RGB: not a color: #{inspect(text)}"
+    end
+  end
+
+  defmacro sigil_RGB(_text, modifiers) do
+    raise CompileError,
+      file: __CALLER__.file,
+      line: __CALLER__.line,
+      description: "~RGB takes no modifiers, got: #{inspect(List.to_string(modifiers))}"
+  end
+
+  @doc """
+  Whether a term is a literal color (spec/04 §1.1): a `%Macaw.Layers.Color{}` of the
+  canonical shape every constructor builds, each field a float in its range. A struct
+  written by hand with integer fields, or out of range, is not one.
+
+      iex> Macaw.Layers.Color.literal?(Macaw.Layers.Color.rgb(59, 111, 168))
+      true
+      iex> Macaw.Layers.Color.literal?(%Macaw.Layers.Color{r: 59, g: 111, b: 168, opacity: 1})
+      false
+
+  """
+  @spec literal?(term()) :: boolean()
+  def literal?(%__MODULE__{r: r, g: g, b: b, opacity: opacity} = color)
+      when map_size(color) == 5 do
+    canonical?(r, 255.0) and canonical?(g, 255.0) and canonical?(b, 255.0) and
+      canonical?(opacity, 1.0)
+  end
+
+  def literal?(_term), do: false
+
+  # A float in `0..max`, and not the negative zero, which `+ 0.0` makes the zero.
+  defp canonical?(v, max), do: is_float(v) and v >= 0.0 and v <= max and v === v + 0.0
+
+  @doc """
+  Whether a term is a name a theme may give a color, a ramp, a style or itself
+  (spec/04 §1.1, §2.1, §2.2, §6): lower-case letters, digits and `_`, starting with a letter,
+  as an atom or a string. It is the grammar every name meets on its way into a stylesheet
+  (`--mw-<name>`, `.mw-theme-<name>`), so no name can break out of one.
+
+      iex> Enum.map([:info, "series_3", "Info", "3d", "", nil], &Macaw.Layers.Color.name?/1)
+      [true, true, false, false, false, false]
+
+  """
+  @spec name?(term()) :: boolean()
+  def name?(name) when is_binary(name), do: Regex.match?(@name, name)
+
+  def name?(name) when is_atom(name) and name not in [nil, true, false],
+    do: name?(Atom.to_string(name))
+
+  def name?(_name), do: false
 
   @doc "Gets a named color's hex value"
   @spec named(String.t()) :: String.t() | nil
@@ -243,6 +333,43 @@ defmodule Macaw.Layers.Color do
     end
   end
 
+  @doc """
+  The color as CSS writes it (spec/04 §1.6), the output edge: `#rrggbb`, or `#rrggbbaa` when
+  translucent, where the color is 8-bit exact (`exact?/1`), else `rgb(r g b / a)` with each
+  number in its shortest exact form. `parse/1` reads either back to the color.
+
+      iex> Macaw.Layers.Color.to_css(Macaw.Layers.Color.rgb(59, 111, 168))
+      "#3b6fa8"
+      iex> Macaw.Layers.Color.to_css(Macaw.Layers.Color.rgb(59.5, 111, 168, 0.5))
+      "rgb(59.5 111.0 168.0 / 0.5)"
+
+  """
+  @spec to_css(t()) :: String.t()
+  def to_css(%__MODULE__{r: r, g: g, b: b, opacity: opacity} = color) do
+    if exact?(color),
+      do: to_hex(color),
+      else: "rgb(#{number(r)} #{number(g)} #{number(b)} / #{number(opacity)})"
+  end
+
+  @doc """
+  Whether the color is 8-bit exact: whole channels, and an opacity that is a whole number of
+  255ths, so a hex literal writes it with nothing lost.
+
+      iex> Macaw.Layers.Color.exact?(Macaw.Layers.Color.parse("#3b6fa880"))
+      true
+      iex> Macaw.Layers.Color.exact?(Macaw.Layers.Color.rgb(59.5, 111, 168))
+      false
+
+  """
+  @spec exact?(t()) :: boolean()
+  def exact?(%__MODULE__{r: r, g: g, b: b, opacity: opacity}) do
+    whole?(r) and whole?(g) and whole?(b) and opacity == round(opacity * 255) / 255
+  end
+
+  defp whole?(v), do: v == round(v)
+
+  defp number(v), do: :erlang.float_to_binary(v * 1.0, [:short])
+
   @doc "Converts to CSS string"
   @spec to_string(t()) :: String.t()
   def to_string(%__MODULE__{r: r, g: g, b: b, opacity: opacity}) do
@@ -280,7 +407,7 @@ defmodule Macaw.Layers.Color do
   @doc "Returns a copy with the specified opacity"
   @spec with_opacity(t(), number()) :: t()
   def with_opacity(%__MODULE__{} = color, opacity) do
-    %{color | opacity: clamp(opacity, 0, 1)}
+    %{color | opacity: fraction(opacity)}
   end
 
   @doc """
@@ -322,13 +449,13 @@ defmodule Macaw.Layers.Color do
   def grayscale(%__MODULE__{r: r, g: g, b: b, opacity: opacity}) do
     # Use luminance formula
     gray = round(0.299 * r + 0.587 * g + 0.114 * b)
-    %__MODULE__{r: gray, g: gray, b: gray, opacity: opacity}
+    rgb(gray, gray, gray, opacity)
   end
 
   @doc "Inverts the color"
   @spec invert(t()) :: t()
   def invert(%__MODULE__{r: r, g: g, b: b, opacity: opacity}) do
-    %__MODULE__{r: 255 - r, g: 255 - g, b: 255 - b, opacity: opacity}
+    rgb(255 - r, 255 - g, 255 - b, opacity)
   end
 
   # -- color operations --------------------------------------------------------------------
@@ -360,12 +487,12 @@ defmodule Macaw.Layers.Color do
   @doc "Interpolates between two colors in RGB space"
   @spec interpolate_rgb(t(), t(), number()) :: t()
   def interpolate_rgb(%__MODULE__{} = c1, %__MODULE__{} = c2, t) do
-    %__MODULE__{
-      r: c1.r + (c2.r - c1.r) * t,
-      g: c1.g + (c2.g - c1.g) * t,
-      b: c1.b + (c2.b - c1.b) * t,
-      opacity: c1.opacity + (c2.opacity - c1.opacity) * t
-    }
+    rgb(
+      c1.r + (c2.r - c1.r) * t,
+      c1.g + (c2.g - c1.g) * t,
+      c1.b + (c2.b - c1.b) * t,
+      c1.opacity + (c2.opacity - c1.opacity) * t
+    )
   end
 
   @doc "Interpolates between two colors in HSL space"
@@ -752,7 +879,23 @@ defmodule Macaw.Layers.Color do
         rgb(String.to_integer(r), String.to_integer(g), String.to_integer(b), parse_float(a))
 
       _ ->
-        nil
+        parse_rgb_spaced(string)
+    end
+  end
+
+  # CSS Color 4's space-separated `rgb(r g b)` and `rgb(r g b / a)`, decimal numbers with an
+  # optional exponent: what `to_css/1` writes of a color that is not 8-bit exact.
+  @css_number "(\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?)"
+  @rgb_spaced Regex.compile!(
+                "\\Argba?\\s*\\(\\s*#{@css_number}\\s+#{@css_number}\\s+#{@css_number}" <>
+                  "\\s*(?:/\\s*#{@css_number}\\s*)?\\)\\z"
+              )
+
+  defp parse_rgb_spaced(string) do
+    case Regex.run(@rgb_spaced, string) do
+      [_, r, g, b] -> rgb(parse_float(r), parse_float(g), parse_float(b))
+      [_, r, g, b, a] -> rgb(parse_float(r), parse_float(g), parse_float(b), parse_float(a))
+      nil -> nil
     end
   end
 
@@ -816,6 +959,11 @@ defmodule Macaw.Layers.Color do
     do: n |> Integer.to_string(16) |> String.pad_leading(2, "0") |> String.downcase()
 
   defp clamp(value, min_val, max_val), do: value |> max(min_val) |> min(max_val)
+
+  # A field of the canonical struct: a float, clamped, and `+ 0.0` so a negative zero is
+  # the zero every other constructor gives (the digest tells the two apart).
+  defp channel(v) when is_number(v), do: clamp(v * 1.0, 0.0, 255.0) + 0.0
+  defp fraction(v) when is_number(v), do: clamp(v * 1.0, 0.0, 1.0) + 0.0
 
   # Lab <-> XYZ conversion helpers
   defp lab_xyz(t) when t > @t1, do: t * t * t

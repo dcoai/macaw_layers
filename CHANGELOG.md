@@ -20,6 +20,13 @@ The JSON adapter tells a name map from a node by the type's positions (spec/01 �
 - **Breaking:** `Theme.Document`'s `ramps`, `colors`, `styles` and `defaults` are name maps, and its value spells every name in them as a string: `node/1`, `fragment/1` and `to_map/1` write `"info"` where they wrote `:info`. `from_map/2` and `from_json/2` read a library spelling back as its atom in one place, so the theme read is unchanged, its JSON form is unchanged, and a theme entry of a store goes through a bundle's forms and import. A node with atom names still reads; `Form.to_map/2` of one is `{:type, :name}` at each.
 - A use site's `local` is a fragment of the type: `Form.encode_term/3` takes the term's place below its tag (`at`), the reader asks `name_map?/1` at `{:tag, tag}` and the path within the payload, and `Fragment.name_map?/2` places a `$use` local at the root's positions, so a local holding a style named `"fill"` round-trips.
 
+**Breaking:** `%Macaw.Layers.Color{}` fields are floats (spec/04 §1.1, §1.6, #11, macaw#188).
+
+- A literal color is a term: every constructor (`rgb`, `hsl`, `lab`, `hcl`, `oklab`, `oklch`, `parse`, the manipulations and interpolations) builds `%Color{}` with every field a float, clamped, never a negative zero, so equal colors are one term and one digest whatever built them. `hsl`, `lab` and `hcl` still round their channels, now held as floats; `interpolate_rgb/3` clamps its result. A struct written with integer fields still compares `==` but is not `Color.literal?/1` and has another digest. `to_rgb/1` and `to_hex/1` are unchanged.
+- The adapters: `Color.parse!/1` (raises `ArgumentError` naming the text) and the compile-time sigil `~RGB"#3b6fa8"` (unreadable text is a `CompileError`) in; `Color.to_css/1` out, hex where the color is 8-bit exact (`Color.exact?/1`), else `rgb(r g b / a)`, which `parse/1` now reads (CSS Color 4's space-separated `rgb()`).
+- `Macaw.Layers.Color.Form` is public, the colors' JSON adapter (`tags/0`, `encode_value/1`, `decode_value/2`), with the tag `$rgb` for a literal: the hex string when 8-bit exact, else `[r, g, b, a]`. A theme document's tag table lists it. How a string is read as a color is unchanged for now.
+- `Color.name?/1`: the grammar of a theme's names (lower-case letters, digits and `_`, starting with a letter), the one its stylesheet names were already held to.
+
 ## v0.2.4 (2026-10-29)
 
 Additive: the hooks visualize needs to adopt the cascade and composites (macaw#179, macaw#183, visualize#963), and a load-order fix.

@@ -15,10 +15,10 @@ defmodule Macaw.Layers.ColorTest do
   describe "parse (spec/04 §1.1)" do
     @tag verifies: "color-parse-forms"
     test "every hex length, short digits doubled and an alpha byte the opacity" do
-      assert Color.parse("#abc") == %Color{r: 170, g: 187, b: 204, opacity: 1.0}
-      assert Color.parse("#abcd") == %Color{r: 170, g: 187, b: 204, opacity: 221 / 255}
-      assert Color.parse("#aabbcc") == %Color{r: 170, g: 187, b: 204, opacity: 1.0}
-      assert Color.parse("#aabbcc80") == %Color{r: 170, g: 187, b: 204, opacity: 128 / 255}
+      assert Color.parse("#abc") === %Color{r: 170.0, g: 187.0, b: 204.0, opacity: 1.0}
+      assert Color.parse("#abcd") === %Color{r: 170.0, g: 187.0, b: 204.0, opacity: 221 / 255}
+      assert Color.parse("#aabbcc") === %Color{r: 170.0, g: 187.0, b: 204.0, opacity: 1.0}
+      assert Color.parse("#aabbcc80") === %Color{r: 170.0, g: 187.0, b: 204.0, opacity: 128 / 255}
       assert Color.parse("  #AABBCC\n") == Color.parse("#aabbcc")
 
       for bad <- ~w(# #a #ab #abcde #abcdefa #abcdef123 #ggg #12345z #aabbcx80),
@@ -29,12 +29,18 @@ defmodule Macaw.Layers.ColorTest do
     test "rgb and rgba with integer channels and any whitespace, hsl and hsla with % optional" do
       assert rgb("rgb(255, 102, 0)") == {255, 102, 0}
       assert rgb("RGB( 1 ,2 , 3 )") == {1, 2, 3}
-      assert Color.parse("rgba(1, 2, 3, 0.5)") == %Color{r: 1, g: 2, b: 3, opacity: 0.5}
+      assert Color.parse("rgba(1, 2, 3, 0.5)") === %Color{r: 1.0, g: 2.0, b: 3.0, opacity: 0.5}
       assert rgb("rgb(300, 0, 0)") == {255, 0, 0}
 
       assert rgb("hsl(24, 100%, 50%)") == {255, 102, 0}
       assert rgb("hsl(24, 100, 50)") == {255, 102, 0}
-      assert Color.parse("hsla(120, 100%, 50%, 0.5)") == %Color{r: 0, g: 255, b: 0, opacity: 0.5}
+
+      assert Color.parse("hsla(120, 100%, 50%, 0.5)") === %Color{
+               r: 0.0,
+               g: 255.0,
+               b: 0.0,
+               opacity: 0.5
+             }
 
       for bad <- [
             "rgb(10%, 0, 0)",
@@ -76,7 +82,7 @@ defmodule Macaw.Layers.ColorTest do
   describe "constructors and conversions (spec/04 §1.2)" do
     @tag verifies: "color-conversions-exact"
     test "constructors clamp; rgb keeps fractions, hsl wraps its hue and rounds" do
-      assert Color.rgb(-5, 300, 12.5, 2) == %Color{r: 0, g: 255, b: 12.5, opacity: 1}
+      assert Color.rgb(-5, 300, 12.5, 2) === %Color{r: 0.0, g: 255.0, b: 12.5, opacity: 1.0}
       assert Color.rgb(1, 2, 3, -1).opacity == 0
       assert Color.hsl(384, 100, 50) == Color.hsl(24, 100, 50)
       assert Color.hsl(-336, 100, 50) == Color.hsl(24, 100, 50)
@@ -161,11 +167,18 @@ defmodule Macaw.Layers.ColorTest do
     end
 
     @tag verifies: "color-conversions-exact"
-    test "each interpolation follows its space, hues the shorter way, t unclamped" do
+    test "each interpolation follows its space, hues the shorter way, t unclamped and the result clamped" do
       a = Color.rgb(0, 0, 0, 0)
       b = Color.rgb(200, 100, 50, 1)
-      assert Color.interpolate_rgb(a, b, 0.25) == %Color{r: 50.0, g: 25.0, b: 12.5, opacity: 0.25}
-      assert Color.interpolate_rgb(a, b, 2).r == 400
+
+      assert Color.interpolate_rgb(a, b, 0.25) === %Color{
+               r: 50.0,
+               g: 25.0,
+               b: 12.5,
+               opacity: 0.25
+             }
+
+      assert Color.interpolate_rgb(a, b, 2) === Color.rgb(255, 200, 100, 1)
 
       red_ish = Color.hsl(350, 100, 50)
       orange_ish = Color.hsl(10, 100, 50)

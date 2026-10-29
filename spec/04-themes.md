@@ -12,6 +12,7 @@
 |---|---|
 | `Macaw.Layers.Color` | colors: the struct, parsing, conversions, manipulation, interpolation, OKLab and OKLCH, contrast, typed colors and their resolution (§1) |
 | `Macaw.Layers.Color.Vision` | color-vision simulation (§1.5) |
+| `Macaw.Layers.Color.Form` | the colors' JSON adapter (§1.6) |
 | `Macaw.Layers.Theme` | the theme: slots, the color table, ramps and roles, the style palette, contracts, resolution, the ink, the built-ins, extensions, the profile (§2–§4) |
 | `Macaw.Layers.Theme.Extension` | the behavior an adopter's extension implements (§3.4) |
 | `Macaw.Layers.Theme.Document` | a theme as a document of its own (§5) |
@@ -19,26 +20,35 @@
 
 ## 1. Color {#themes-color}
 
-### 1.1 The struct and parsing {#themes-color-parse}
+### 1.1 The literal color, and parsing {#themes-color-parse}
 
-`%Macaw.Layers.Color{r, g, b, opacity}` with `r`, `g`, `b` in `[0, 255]` and `opacity` in `[0, 1]` (default `1.0`). `hsl`, `lab` and `hcl` round channels to integers; `rgb`, `oklab` and `oklch` clamp without rounding, and interpolation may leave them as floats.
+**A literal color is a term:** `%Macaw.Layers.Color{r, g, b, opacity}`, a color as data, drawn as itself. It is **canonical**: every field is a float, `r`, `g` and `b` clamped to `[0, 255]` and `opacity` to `[0, 1]` (default `1.0`), and a zero is never the negative zero. Every constructor builds that shape (`rgb`, `hsl`, `lab`, `hcl`, `oklab`, `oklch`, `parse`, the manipulations and interpolations, §1.2), so two literals of one color are one term whatever built them: equal, and of one digest (spec/01 §7), `parse!("white")` and `rgb(255, 255, 255)` alike. `literal?/1` is whether a term is a literal color: the struct of that canonical shape, so a struct written by hand with integer fields, or out of range, is not one. `hsl`, `lab` and `hcl` round channels to whole numbers, held as floats; `rgb`, `oklab` and `oklch` clamp without rounding.
+
+CSS text is not a color but one of its encodings: text is read into a literal at the input edge and a literal written as text at the output edge (§1.6).
+
+`name?/1` is the grammar of a name a theme gives (a color, a ramp, a style, the theme itself, §2.1, §2.2): lower-case letters, digits and `_`, starting with a letter, as an atom or a string (`nil`, `true` and `false` are not names). It is what every name meets on its way into a stylesheet (`--mw-<name>`, `.mw-theme-<name>`, §6), so no name can break out of one.
 
 `parse/1` trims and lower-cases its argument and returns a color or `nil`. A non-binary argument returns `nil`. Accepted syntaxes:
 - **hex:** `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`. Short digits are doubled; an alpha byte becomes `opacity = a / 255`. Any other length after `#`, and a non-hex digit, return `nil` (visualize raised for a non-hex digit; a parser of untrusted text answers rather than raises);
 - **`rgb(r, g, b)` and `rgba(r, g, b, a)`:** integer channels, optional decimal alpha, any whitespace around separators. Percentages are not accepted;
+- **`rgb(r g b)` and `rgb(r g b / a)`:** CSS Color 4's space-separated form, decimal numbers with an optional exponent (`1.0e-5`), as `to_css/1` writes them (§1.6). Percentages are not accepted;
 - **`hsl(h, s, l)` and `hsla(h, s, l, a)`:** decimal components, `%` optional on `s` and `l`;
 - **named colors:** the 148 CSS color keywords (the 147 classic names plus `rebeccapurple`, with `gray` in both its spellings).
 
 A string that matches none returns `nil`. `named/1` is the lower-case hex string for a keyword (case-insensitively) or `nil`; `named_colors/0` is the keyword list.
 
 ```test:color-parse-forms
-parse reads every hex length, rgb and rgba, hsl and hsla and the 148 keywords case-insensitively and trimmed; any other text, a bad digit and a non-binary are nil; named gives a keyword's hex
+parse reads every hex length, rgb and rgba, the space-separated rgb, hsl and hsla and the 148 keywords case-insensitively and trimmed; any other text, a bad digit and a non-binary are nil; named gives a keyword's hex
+```
+
+```test:color-literal-canonical
+every constructor builds the canonical struct, its fields floats in range and no negative zero; literal? refuses a struct with integer fields; equal colors built by different constructors are equal and have one digest; name? holds of lower-case words only
 ```
 
 ### 1.2 Constructors, conversions and manipulation {#themes-color-convert}
 
 - **Constructors.**
-  - `rgb/3,4` clamps channels to `[0, 255]` and opacity to `[0, 1]` without rounding.
+  - `rgb/3,4` clamps channels to `[0, 255]` and opacity to `[0, 1]` without rounding, each a float.
   - `hsl/3,4` takes `h` in degrees (truncated and wrapped into `[0, 360)`), and `s` and `l` in `[0, 100]` (clamped), and rounds the channels.
   - `lab/3,4` takes CIE L\*a\*b\* and converts through XYZ with the reference white `Xn = 0.96422, Yn = 1, Zn = 0.82521` (the d3-color constants) to sRGB, clamped and rounded.
   - `hcl/3,4` takes hue in degrees, chroma and luminance, and converts through Lab (`a = c cos h`, `b = c sin h`).
@@ -63,10 +73,10 @@ parse reads every hex length, rgb and rgba, hsl and hsla and the 148 keywords ca
   - `luminance/1` is the WCAG relative luminance, and `contrast/2` is `(L_light + 0.05) / (L_dark + 0.05)` in `[1, 21]`.
   - `mix/2` is `interpolate_rgb(c1, c2, 0.5)`.
 - **Interpolation.**
-  - `interpolate_rgb/3` is linear and unrounded.
+  - `interpolate_rgb/3` is linear and unrounded, and built by `rgb/4`, so clamped.
   - `interpolate_hsl/3` and `interpolate_hcl/3` take the shorter hue arc.
   - `interpolate_lab/3` interpolates in Lab.
-  - Every result other than RGB passes through its constructor and is rounded. `t` is not clamped.
+  - Every result other than RGB passes through its constructor and is rounded. `t` is not clamped; the result's fields are, as every constructor's are (§1.1).
 - **OKLab and OKLCH** (Björn Ottosson, 2020; CSS Color 4 §9).
   - `to_oklab/1` is `%{l, a, b, opacity}`, and `to_oklch/1` is `%{l, c, h, opacity}`, with `l` in `0..1` and `h` in `[0, 360)`.
   - `oklab/3,4` and `oklch/3,4` build a color, **gamut-mapped** by CSS Color 4 §13.2: chroma is reduced in OKLCH by binary search until the clipped color is within a ΔEOK of 0.02, and a result too light or too dark becomes white or black.
@@ -172,6 +182,33 @@ Each row sums to 1, so every gray is its own simulation.
 
 ```test:color-vision-machado
 each deficiency's matrix is Machado's at severity 1, every gray is its own simulation, opacity is kept, none is the identity, and recolor replaces hex literals but not url references
+```
+
+### 1.6 The adapters {#themes-color-adapters}
+
+A literal color is a term (§1.1); its encodings are made and read at the edges, by the adapters, and nothing inside judges a color by one.
+
+**In, from text.** `parse/1` reads untrusted text and answers `nil` for anything it does not read (§1.1). Two edges read text a program holds:
+- **`parse!/1`** is `parse/1` that raises `ArgumentError`, naming the text, for text it does not read: `parse!("nope")` raises;
+- **`~RGB"#3b6fa8"`**, a sigil (`import Macaw.Layers.Color, only: [sigil_RGB: 2]`), reads its text with `parse/1` when the code compiles and compiles the color in, so text it does not read is a `CompileError` at that line, never a fault at run time. It takes no modifiers.
+
+**Out, to CSS.** `to_css/1` writes a literal as CSS: `#rrggbb`, or `#rrggbbaa` when `opacity < 1`, where the color is **8-bit exact** (`exact?/1`: whole channels and an opacity that is a whole number of 255ths), else `rgb(r g b / a)`, each number in its shortest form that reads back exactly. `parse!(to_css(c)) == c` for every literal `c`.
+
+**JSON.** `Macaw.Layers.Color.Form` is the colors' JSON adapter, for a document type that holds colors (spec/01 §6) to call from its `Form` callbacks: `tags/0`, the colors' tags for its tag table; `encode_value/1`, a color's map form or `:default`; and `decode_value/2`, the value of one of those tags, its payload already read, or `:default`, which the kernel refuses at its path. A literal is the tag `$rgb`:
+
+| Literal | Map form |
+|---|---|
+| 8-bit exact | `{"$rgb": "#3b6fa8"}`, eight digits when `opacity < 1` |
+| any other | `{"$rgb": [r, g, b, a]}`, its four fields |
+
+Reading `$rgb` builds the canonical literal, so `decode_value("$rgb", p)` of the payload `p` that `encode_value(c)` writes is `c` for every literal `c`. A payload other than `#` and six or eight hex digits, or four numbers in their ranges, is no color, and a struct that is not a literal has no form. The color values' tags are §5's. A theme document's tag table lists `$rgb` (§5).
+
+```test:color-adapters-edges
+parse! of to_css is the color for every 8-bit-exact literal and for literals that are not; parse! raises naming the text; the sigil compiles a literal in and an unreadable text is a compile error; to_css writes hex where exact and rgb() otherwise
+```
+
+```test:color-adapters-json
+the $rgb payload encode_value writes of any literal decodes to that literal, as hex where 8-bit exact and as four numbers otherwise; a malformed payload is refused at its path; a theme document's map form carries a literal through $rgb
 ```
 
 ## 2. The theme {#themes-theme}
@@ -468,7 +505,7 @@ A theme is stored and shipped as a value, so it is a **document** (spec/01): `Ma
 | Form | What |
 |---|---|
 | value | `%{version: v, theme: node}` (`to_map/1`); the store's fragment `%{theme: node}` (`fragment/1`), a library entry of kind `:theme`, reads as the same document; every name in `ramps`, `colors`, `styles` and `defaults` a string |
-| JSON | `{"$version": v, "theme": {…}}` (`to_json/1`, through the JSON adapter, `Form.to_json/2`), each color value a tag: `{"$color": name}`, `{"$series": i}`, `{"$ramp": [name, t]}`, each transform by its name with `[color, number]` (`{"$lighten": [C, 0.3]}`), `{"$blend": [C, …]}`, `{"$contrast": "under" \| C}`; pinned steps as `{"$steps": [[n, color], …]}` |
+| JSON | `{"$version": v, "theme": {…}}` (`to_json/1`, through the JSON adapter, `Form.to_json/2`), each color value a tag: a literal color `{"$rgb": …}` (§1.6), `{"$color": name}`, `{"$series": i}`, `{"$ramp": [name, t]}`, each transform by its name with `[color, number]` (`{"$lighten": [C, 0.3]}`), `{"$blend": [C, …]}`, `{"$contrast": "under" \| C}`; pinned steps as `{"$steps": [[n, color], …]}` |
 
 `from_map(document, opts)` takes `extensions:`, the extensions the host registers, which the theme read carries and its contracts hold; `from_json(json, opts)` takes `extensions:` and `limits:`, the JSON adapter's (spec/01 §5). A style series a document spells beyond the built-in ten reads as its name up to `style_64`, and a `series` longer than 64 is `{:limit, :series, 64, n}`.
 

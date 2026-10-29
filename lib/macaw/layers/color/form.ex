@@ -1,36 +1,68 @@
 defmodule Macaw.Layers.Color.Form do
-  @moduledoc false
-  # The map form of a color value (spec/04 §1.3, §5), for a document type that holds one to
-  # write and read through its `Macaw.Layers.Form` callbacks: each value as a tag, its
-  # operands in their own forms, and a theme's pinned steps as `$steps`.
-  #
-  #     {:color, :red}                   {"$color": "red"}
-  #     {:series, 3}                     {"$series": 3}
-  #     {:ramp, :status, 0.5}            {"$ramp": ["status", 0.5]}
-  #     {:lighten, c, 0.3}               {"$lighten": [C, 0.3]}     and so each transform
-  #     {:blend, [c, …]}                 {"$blend": [C, …]}
-  #     {:contrast, :under | c}          {"$contrast": "under" | C}
-  #     %{500 => "#d62728", 100 => …}    {"$steps": [[100, …], [500, "#d62728"]]}
-  #
-  # A name the library gives is read as its atom and any other as its string; a ramp of
-  # another name is no color. No atom is made from a document.
-  #
-  # The tags of visualize's `Visualize.Chart.Codec`.
+  @moduledoc """
+  The colors' JSON adapter (spec/04 §1.6, §5): the map form of a literal color and of a
+  color value, for a document type that holds colors to write and read through its
+  `Macaw.Layers.Form` callbacks. Each is a tag, a transform's operands in their own forms,
+  and a theme's pinned steps `$steps`:
+
+  | Value | Map form |
+  |---|---|
+  | `%Macaw.Layers.Color{}`, 8-bit exact | `{"$rgb": "#3b6fa8"}`, eight digits when translucent |
+  | `%Macaw.Layers.Color{}`, any other | `{"$rgb": [r, g, b, a]}`, its fields |
+  | `{:color, :red}` | `{"$color": "red"}` |
+  | `{:series, 3}` | `{"$series": 3}` |
+  | `{:ramp, :status, 0.5}` | `{"$ramp": ["status", 0.5]}` |
+  | `{:lighten, c, 0.3}`, and so each transform | `{"$lighten": [C, 0.3]}` |
+  | `{:blend, [c, …]}` | `{"$blend": [C, …]}` |
+  | `{:contrast, :under}`, `{:contrast, c}` | `{"$contrast": "under"}`, `{"$contrast": C}` |
+  | `%{500 => "#d62728", 100 => …}` | `{"$steps": [[100, …], [500, "#d62728"]]}` |
+
+  `$rgb` reads back the canonical struct (`Macaw.Layers.Color.literal?/1`), so decoding the
+  payload `encode_value/1` writes of a literal color gives that color again. Its payload is
+  `#` and six or eight hex digits, or four numbers in their ranges; any other is no color.
+  A struct that is not a literal color has no form. A name the library gives is read as
+  its atom and any other as its string; a ramp of another name is no color. No atom is
+  made from a document.
+
+  A type implements `c:Macaw.Layers.Form.encode_value/1` and
+  `c:Macaw.Layers.Form.decode_value/2` by calling these, and lists `tags/0` among its live
+  tags. A value or payload these do not read is `:default`, which the kernel refuses at its
+  path.
+
+  The tags of visualize's `Visualize.Chart.Codec`, with `$rgb`.
+  """
 
   alias Macaw.Layers.{Color, Theme, Vocabulary}
 
   @ops [:intensity, :alpha, :lighten, :darken, :saturate, :shade]
   @op_tags Map.new(@ops, &{"$#{&1}", &1})
-  @tags ~w($color $series $ramp $blend $contrast $steps) ++ Map.keys(@op_tags)
+  @tags ~w($rgb $color $series $ramp $blend $contrast $steps) ++ Map.keys(@op_tags)
   @names Vocabulary.table(Theme.library_color_names())
   @ramps Vocabulary.table(Theme.ramp_names())
+  @hex ~r/\A#(?:[0-9a-f]{6}|[0-9a-f]{8})\z/i
 
-  @doc false
+  @doc "The colors' tags, for a type's tag table."
   @spec tags() :: [String.t(), ...]
   def tags, do: @tags
 
-  @doc false
+  @doc """
+  A color's map form, `{:ok, form}`, or `:default` for a term that is not a color here.
+
+      iex> Macaw.Layers.Color.Form.encode_value(Macaw.Layers.Color.parse("#3b6fa880"))
+      {:ok, %{"$rgb" => "#3b6fa880"}}
+      iex> Macaw.Layers.Color.Form.encode_value(Macaw.Layers.Color.rgb(59.5, 111, 168))
+      {:ok, %{"$rgb" => [59.5, 111.0, 168.0, 1.0]}}
+
+  """
   @spec encode_value(term()) :: {:ok, map()} | :default
+  def encode_value(%Color{} = color) do
+    cond do
+      not Color.literal?(color) -> :default
+      Color.exact?(color) -> {:ok, %{"$rgb" => Color.to_hex(color)}}
+      true -> {:ok, %{"$rgb" => [color.r, color.g, color.b, color.opacity]}}
+    end
+  end
+
   def encode_value({:color, name}) when is_atom(name) or is_binary(name),
     do: {:ok, %{"$color" => to_string(name)}}
 
@@ -74,10 +106,27 @@ defmodule Macaw.Layers.Color.Form do
   defp operand(c) when is_binary(c), do: {:ok, c}
   defp operand(c), do: encode_value(c)
 
-  @doc false
-  # The value of one of these tags, its payload already read, or `:default` for a payload
-  # this reader does not read, which the kernel refuses at its path.
+  @doc """
+  The value of one of `tags/0`, its payload already read: `{:ok, value}`, or `:default` for
+  a tag or payload this reader does not read.
+
+      iex> Macaw.Layers.Color.Form.decode_value("$rgb", "#3b6fa8")
+      {:ok, %Macaw.Layers.Color{r: 59.0, g: 111.0, b: 168.0, opacity: 1.0}}
+      iex> Macaw.Layers.Color.Form.decode_value("$rgb", "steelblue")
+      :default
+
+  """
   @spec decode_value(String.t(), term()) :: {:ok, term()} | :default
+  def decode_value("$rgb", hex) when is_binary(hex) do
+    if Regex.match?(@hex, hex), do: {:ok, Color.parse(hex)}, else: :default
+  end
+
+  def decode_value("$rgb", [r, g, b, a]) do
+    if Enum.all?([r, g, b], &in?(&1, 255)) and in?(a, 1),
+      do: {:ok, Color.rgb(r, g, b, a)},
+      else: :default
+  end
+
   def decode_value("$color", name) when is_binary(name) and name != "" do
     case Vocabulary.fetch(@names, name) do
       {:ok, atom} -> {:ok, {:color, atom}}
@@ -120,4 +169,6 @@ defmodule Macaw.Layers.Color.Form do
   def decode_value(_tag, _payload), do: :default
 
   defp color?(c), do: is_binary(c) or Color.value?(c)
+
+  defp in?(v, max), do: is_number(v) and v >= 0 and v <= max
 end

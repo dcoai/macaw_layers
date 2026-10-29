@@ -11,7 +11,6 @@ defmodule Macaw.Layers.Theme.Table do
   alias Macaw.Layers.Theme.{Contract, Extension}
 
   @css_set Map.new(Color.named_colors(), &{&1, true})
-  @word ~r/\A[a-z][a-z0-9_]*\z/
 
   @doc false
   @spec own_colors(Theme.t()) :: map()
@@ -279,7 +278,8 @@ defmodule Macaw.Layers.Theme.Table do
 
   @doc false
   @spec word?(String.t()) :: boolean()
-  def word?(spelling), do: Regex.match?(@word, spelling)
+  # A spelling in the grammar of a theme's names, `Color.name?/1`.
+  def word?(spelling) when is_binary(spelling), do: Color.name?(spelling)
 
   @doc false
   # A value as CSS writes it: a size in px, and a string with the characters that would end
