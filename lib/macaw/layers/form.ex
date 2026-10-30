@@ -203,7 +203,9 @@ defmodule Macaw.Layers.Form do
   type's tables (`c:keys/0`, `c:atoms/0`) and, with `vocabulary: %{keys: [...], atoms:
   [...]}`, the words given there, merged over them: an adopter's registered words, given
   by code. No atom is made from the document beyond those tables. A key outside them is
-  read as its string, and a `$atom` outside them is `{:enum, atoms}` at its path.
+  read as its string, and a `$atom` outside them is `{:unknown_atom, spelling}` at its
+  path: the spelling, not a list of the type's atoms, which are the whole document's and
+  not the position's (which values a position takes is the type's own check).
   """
   @spec read(binary() | map(), module(), [option()]) :: {:ok, term()} | {:error, [Fault.t(), ...]}
   def read(input, type, opts \\ []) when is_atom(type) do
@@ -422,11 +424,9 @@ defmodule Macaw.Layers.Form do
   defp decode(leaf, _path, _type, _names, _root?), do: {leaf, []}
 
   defp tagged("$atom", spelling, path, type) do
-    atoms = type.atoms
-
-    case Vocabulary.fetch(atoms, spelling) do
+    case Vocabulary.fetch(type.atoms, spelling) do
       {:ok, atom} -> {atom, []}
-      :error -> {spelling, [{path, {:enum, atoms |> Map.values() |> Enum.sort()}}]}
+      :error -> {spelling, [{path, {:unknown_atom, spelling}}]}
     end
   end
 

@@ -394,10 +394,10 @@ defmodule Macaw.Layers.Theme.NamesTest do
       # Without the extension the reader has no word :monotone_x nor :middle to make.
       assert {:error, faults} = Document.from_json(json)
 
-      assert [{[:theme, :defaults, "text", "anchor"], {:enum, _}}] =
+      assert [{[:theme, :defaults, "text", "anchor"], {:unknown_atom, "middle"}}] =
                Enum.filter(faults, &match?({[:theme, :defaults | _], _}, &1))
 
-      assert [{[:theme, :styles, "hover", :curve, :type], {:enum, _}}] =
+      assert [{[:theme, :styles, "hover", :curve, :type], {:unknown_atom, "monotone_x"}}] =
                Enum.filter(faults, &match?({[:theme, :styles | _], _}, &1))
 
       # Without its words, the extension's own keys can't be written either.
@@ -426,10 +426,8 @@ defmodule Macaw.Layers.Theme.NamesTest do
         })
 
       for opts <- [[], [extensions: [Curves]]] do
-        assert {:error, [{[:theme, :styles, "hover", :curve, :type], {:enum, words}}]} =
-                 Document.from_json(json, opts)
-
-        refute word in Enum.map(words, &Atom.to_string/1)
+        assert Document.from_json(json, opts) ==
+                 {:error, [{[:theme, :styles, "hover", :curve, :type], {:unknown_atom, word}}]}
       end
 
       assert Atoms.made([word, key, name]) == []

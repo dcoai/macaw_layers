@@ -77,10 +77,8 @@ defmodule Macaw.Layers.Theme.DocumentTest do
 
       # The vocabulary is the JSON reader's: without the extension that registers it, the
       # word is no atom the reader may make, refused at its path.
-      assert {:error, [{[:theme, :defaults, "line", :curve, :type], {:enum, words}}]} =
-               Document.from_json(json)
-
-      refute :step in words
+      assert Document.from_json(json) ==
+               {:error, [{[:theme, :defaults, "line", :curve, :type], {:unknown_atom, "step"}}]}
     end
 
     @tag verifies: "themes-document-forms"

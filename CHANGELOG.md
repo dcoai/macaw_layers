@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Fault change:** a `$atom` outside the reader's words is `{:unknown_atom, spelling}` at its path, naming the spelling, instead of `{:enum, <every atom of the type>}`. The type's atom table is the whole document's, not the position's, so the list it gave misled wherever it was read (macaw#212 found a surface setting told to be one of the component kinds). Which values a position takes stays the type's own check. Match on `{:unknown_atom, _}` where you matched `{:enum, _}` from a read (#20, spec/01 §3, §6).
 - `Color.Form` reads any name `Color.name?/1` accepts in `$color` and `$ramp`, so a typed color naming a theme's own ramp round-trips through JSON; a payload whose name is not a name (`"Brand"`, `"a-b"`, `""`) is no color, where `$color` used to read any string (#17, #19, spec/04 §1.6).
 
 ## v0.3.0 (2026-10-29)

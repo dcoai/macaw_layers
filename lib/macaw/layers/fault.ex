@@ -91,6 +91,12 @@ defmodule Macaw.Layers.Fault do
   defp kernel_words({:enum, allowed}) when is_list(allowed),
     do: {:ok, "must be one of #{list(allowed)}"}
 
+  defp kernel_words({:unknown_atom, spelling}),
+    do:
+      {:ok,
+       "#{inspect(spelling)} is not an atom this reader knows; an adopter's atoms are given " <>
+         "in vocabulary:"}
+
   defp kernel_words({:newer_schema, needs, this}),
     do: {:ok, "needs schema v#{needs}, this is v#{this}"}
 

@@ -164,7 +164,7 @@ defmodule Macaw.Layers.FormTest do
 
     # A tag the value reads wrong stops the read before the value is judged.
     assert Form.read(~s({"kind": {"$atom": "chart_9q"}}), Card) ==
-             {:error, [{[:kind], {:enum, [:chart, :table, :text]}}]}
+             {:error, [{[:kind], {:unknown_atom, "chart_9q"}}]}
   end
 
   @tag verifies: "forms-terms"
@@ -191,7 +191,7 @@ defmodule Macaw.Layers.FormTest do
              {:error,
               [
                 {[:at], {:type, :time}},
-                {[:kind], {:enum, [:chart, :table, :text]}}
+                {[:kind], {:unknown_atom, fresh}}
               ]}
 
     assert Atoms.made([fresh]) == []
@@ -213,21 +213,21 @@ defmodule Macaw.Layers.FormTest do
     assert Form.from_map(map, Card, vocabulary: words) ==
              {:ok, %{caption: :figure, kind: :chart}}
 
-    # Without them the key stays its string and the atom is the enum fault, the type's own
-    # atoms read as before.
+    # Without them the key stays its string and the atom is refused by its spelling, the
+    # type's own atoms read as before.
     assert Form.from_map(map, Card) ==
-             {:error, [{["caption"], {:enum, [:chart, :table, :text]}}]}
+             {:error, [{["caption"], {:unknown_atom, "figure"}}]}
 
     assert {:ok, json} = Form.to_json(%{caption: :figure, kind: :chart}, Card, vocabulary: words)
     assert Form.read(json, Card, vocabulary: words) == {:ok, %{caption: :figure, kind: :chart}}
-    assert {:error, [{["caption"], {:enum, _}}]} = Form.read(json, Card)
+    assert {:error, [{["caption"], {:unknown_atom, "figure"}}]} = Form.read(json, Card)
 
     # A word the vocabulary lacks is refused at its path, a fresh spelling made no atom.
     assert Form.from_map(
              %{fresh_key => 1, "kind" => %{"$atom" => fresh_atom}},
              Card,
              vocabulary: words
-           ) == {:error, [{[:kind], {:enum, [:chart, :figure, :table, :text]}}]}
+           ) == {:error, [{[:kind], {:unknown_atom, fresh_atom}}]}
 
     assert Atoms.made([fresh_key, fresh_atom]) == []
 

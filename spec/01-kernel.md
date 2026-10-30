@@ -88,6 +88,7 @@ The kernel's reasons and their words:
 | `:key_spelling` | is a name spelled like a key of this document; it would read back as the key |
 | `{:type, type}` | must be *type*, for the types below; any other type is the document type's to word |
 | `{:enum, allowed}` | must be one of *allowed*, each shown with `inspect/1`, joined by `, ` |
+| `{:unknown_atom, spelling}` | *spelling*, shown with `inspect/1`, is not an atom this reader knows; an adopter's atoms are given in vocabulary: |
 | `{:newer_schema, needs, this}` | needs schema v*needs*, this is v*this* |
 | `{:limit, name, max, given}` | for `:bytes`, is *given* bytes; the limit bytes is *max*; for `:depth`, is nested *given* deep; the limit depth is *max*; for `:items`, holds at least *given* items; the limit items is *max* (a scan that stops at the limit knows only that much) |
 | `{:json, message}` | JSON does not parse: *message* |
@@ -253,10 +254,10 @@ A document type implements the behavior `Macaw.Layers.Form`:
 - optionally, `encode_value/1` and `decode_value/2`, for values of its own (a struct, a tuple), written under its own live tags;
 - optionally, `name_map?(path) :: boolean`, whether the map at `path` is a **name map**, whose keys are names, never the type's keys. `path` is from the document's root as the value holds it: atom keys, string names and list indexes. A fragment type answers with `Macaw.Layers.Fragment.name_map?/2`, from its specs ([02 §9](02-fragments.md#fragments-forms)). A type without it has no name maps: every map is a node.
 
-**The reader's vocabulary.** The codec and the reader take `vocabulary: %{keys: [atom], atoms: [atom]}` (`to_map/3`, `from_map/3`, `to_json/3`, `read/3`), the words an adopter registers beyond the type's own, given by code and never by a document. They are merged over the type's tables, `keys` over `keys/0` and `atoms` over `atoms/0`, for that call alone: a key spelled like one of them reads as its atom, and a `$atom` spelling one reads as it; without them the key stays its string and the `$atom` is `{path, {:enum, allowed}}`. No atom is made from the document beyond those tables. A value built in Elixir keeps every word as given, whatever the tables: the vocabulary bounds what reading an encoding may make, never what a value may hold. A `vocabulary:` that is not a map of `:keys` and `:atoms` to lists of atoms raises `ArgumentError`.
+**The reader's vocabulary.** The codec and the reader take `vocabulary: %{keys: [atom], atoms: [atom]}` (`to_map/3`, `from_map/3`, `to_json/3`, `read/3`), the words an adopter registers beyond the type's own, given by code and never by a document. They are merged over the type's tables, `keys` over `keys/0` and `atoms` over `atoms/0`, for that call alone: a key spelled like one of them reads as its atom, and a `$atom` spelling one reads as it; without them the key stays its string and the `$atom` is `{path, {:unknown_atom, spelling}}`, naming the spelling: the type's atom table is the whole document's, not the position's, so the reader lists none of it, and which values a position takes is the type's own check. No atom is made from the document beyond those tables. A value built in Elixir keeps every word as given, whatever the tables: the vocabulary bounds what reading an encoding may make, never what a value may hold. A `vocabulary:` that is not a map of `:keys` and `:atoms` to lists of atoms raises `ArgumentError`.
 
 ```test:forms-vocabulary
-a word outside the type's tables reads as its atom with vocabulary: naming it and is the enum fault (a $atom) or its string (a key) without it, and no atom is made either way; to_map/3 writes an atom key the vocabulary names and refuses it as :unknown_key without; a malformed vocabulary raises
+a word outside the type's tables reads as its atom with vocabulary: naming it and is the unknown-atom fault naming its spelling (a $atom) or its string (a key) without it, and no atom is made either way; to_map/3 writes an atom key the vocabulary names and refuses it as :unknown_key without; a malformed vocabulary raises
 ```
 
 **The kernel's terms:**
@@ -264,7 +265,7 @@ a word outside the type's tables reads as its atom with vocabulary: naming it an
 | Value | Map form |
 |---|---|
 | `nil`, a boolean, a number, a string | as it is |
-| another atom | `{"$atom": "spelling"}`, read back through the type's `atoms/0`; a spelling it lacks is `{path, {:enum, allowed}}` |
+| another atom | `{"$atom": "spelling"}`, read back through the type's `atoms/0`; a spelling it lacks is `{path, {:unknown_atom, spelling}}` |
 | a `DateTime` in `Etc/UTC` | `{"$time": "ISO 8601"}`; a payload that is not one is `{path, {:type, :time}}` |
 | a list | a list |
 | a map | an object, keyed as below |
@@ -287,7 +288,7 @@ to_json/2 stamps the type's current version where the type has a version line an
 ```
 
 ```test:forms-terms
-each kernel term has the map form the table gives, an atom spelling outside atoms/0 is the enum fault, a $time that is not an ISO 8601 UTC time is the time fault, and no atom is made reading either
+each kernel term has the map form the table gives, an atom spelling outside atoms/0 is the unknown-atom fault naming it, a $time that is not an ISO 8601 UTC time is the time fault, and no atom is made reading either
 ```
 
 ```test:forms-keys

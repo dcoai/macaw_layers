@@ -65,6 +65,10 @@ defmodule Macaw.Layers.FaultTest do
              "is a name spelled like a key of this document; it would read back as the key"
 
     assert words.({:enum, [:a, :b]}) == "must be one of :a, :b"
+
+    assert words.({:unknown_atom, "wide"}) ==
+             ~s("wide" is not an atom this reader knows; an adopter's atoms are given in vocabulary:)
+
     assert words.({:newer_schema, 4, 3}) == "needs schema v4, this is v3"
     assert words.({:limit, :bytes, 10, 12}) == "is 12 bytes; the limit bytes is 10"
     assert words.({:limit, :depth, 64, 65}) == "is nested 65 deep; the limit depth is 64"
