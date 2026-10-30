@@ -337,7 +337,9 @@ The canonical encoding is one version byte, `1`, then the term, every part tagge
 | a map | `m`, its size, then each key's encoding followed by its value's, ordered by the keys' encodings bytewise |
 
 - **Key order never matters,** and different terms have different encodings: `1` and `1.0`, `0.0` and `-0.0` (as under `===`), `:a` and `"a"`, `{:a}` and `[:a]`, a map holding `nil` and one lacking the key.
-- **A struct is its map,** `__struct__` and all. So a `DateTime` carries its zone, offset and precision, two `DateTime`s at one instant in different zones differ, and a struct differs from its bare map.
+- **A struct is its canonical term** (`Macaw.Layers.Digest.canonical/1`), encoded in its place wherever it appears, nested in maps, lists and tuples too. The fallback, for every struct whose type doesn't implement the protocol, is its map, `__struct__` and all. So a `DateTime` carries its zone, offset and precision, two `DateTime`s at one instant in different zones differ, and a struct differs from its bare map.
+- **A struct whose fields are a layout of its contents implements the protocol,** answering the term its identity is (a chunked table, its columns' values whatever the chunks), so equal values laid out differently get one digest. The answer must be data and is encoded as any term is, a struct in it by its own canonical term. No struct in the library implements it, so no digest the kernel made before the hook changes.
+- **The encoding is exposed:** `Document.encode/1` is a term's encoding without the version byte, and `Document.encoding_version/0` that byte, so `digest(t)` is the SHA-256 of `encoding_version()` followed by `encode(t)`. A type whose canonical term is large hashes its parts as it goes and gets the same digest, with no second encoder of its own.
 - **A term that is not data raises `ArgumentError`,** naming it: a function, a PID, a reference, a port, an improper list.
 
 Records, base renders and bundles cite a value by its digest. **The canonical encoding is part of the kernel's contract.** Changing it changes every digest, so it changes only with a new major version. Its version byte is what such a change would move.
@@ -352,6 +354,10 @@ over generated pairs of different terms, the digests differ; 1 and 1.0, 0.0 and 
 
 ```test:digest-golden
 fixed values' digests are the recorded ones, computed independently from this section's table, so any change to the encoding fails the test
+```
+
+```test:digest-canonical
+a struct implementing the protocol digests as its canonical term, alone and nested in a map, a list and a tuple, so two layouts of one value share a digest; a struct without an implementation digests as its map, as before; over generated data terms the digest is the SHA-256 of the version byte and encode/1
 ```
 
 ```test:digest-not-data

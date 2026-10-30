@@ -128,6 +128,38 @@ defmodule Macaw.Layers.DigestTest do
     for {value, digest} <- golden, do: assert({value, Document.digest(value)} == {value, digest})
   end
 
+  @tag verifies: "digest-canonical"
+  test "a struct implementing the protocol digests as its canonical term, wherever it sits" do
+    alias Macaw.Layers.Test.Chunked
+    rows = [%{"v" => 1}, %{"v" => 2.5}, %{"v" => nil}, %{"v" => "x"}, %{"v" => 5}]
+    [a, b] = [Chunked.new(rows, 2), Chunked.new(rows, 3)]
+
+    # Two layouts of one value: different structs, one digest, the canonical term's.
+    refute a == b
+    assert Document.digest(a) == Document.digest(b)
+    assert Document.digest(a) == Document.digest({"test.chunked", rows})
+
+    # Nested anywhere, it is encoded as its canonical term.
+    for wrap <- [&%{"t" => &1}, &[1, &1], &{:ok, &1}],
+        do: assert(Document.digest(wrap.(a)) == Document.digest(wrap.(b)))
+
+    refute Document.digest(Chunked.new(Enum.reverse(rows), 2)) == Document.digest(a)
+
+    # A struct without an implementation is its map, __struct__ and all, as before.
+    at = ~U[2026-10-30 12:00:00Z]
+
+    assert Document.digest(at) ==
+             Document.digest(Map.from_struct(at) |> Map.put(:__struct__, DateTime))
+  end
+
+  @tag verifies: "digest-canonical"
+  property "the digest is the SHA-256 of the version byte and encode/1" do
+    check all(term <- data()) do
+      hashed = :crypto.hash(:sha256, [Document.encoding_version() | Document.encode(term)])
+      assert Base.encode16(hashed, case: :lower) == Document.digest(term)
+    end
+  end
+
   @tag verifies: "digest-not-data"
   test "a term that is not data raises, naming it" do
     for term <- [fn -> :ok end, self(), make_ref(), [1 | 2], %{"k" => [self()]}] do

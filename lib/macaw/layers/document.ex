@@ -81,7 +81,8 @@ defmodule Macaw.Layers.Document do
 
   Sizes are 64-bit, and every number is big-endian. So key order never matters, and
   different terms have different encodings: `1` and `1.0`, `0.0` and `-0.0` (as under
-  `===`), `:a` and `"a"`, `{:a}` and `[:a]` all differ. A struct is its map, `__struct__`
+  `===`), `:a` and `"a"`, `{:a}` and `[:a]` all differ. A struct is its canonical term
+  (`Macaw.Layers.Digest`), which unless its type says otherwise is its map, `__struct__`
   and all, so a `DateTime` carries its zone and precision, and a struct differs from its
   bare map.
 
@@ -101,27 +102,60 @@ defmodule Macaw.Layers.Document do
   @spec digest(term()) :: String.t()
   def digest(value) do
     :sha256
-    |> :crypto.hash([@encoding | encode(value)])
+    |> :crypto.hash([encoding_version() | encode(value)])
     |> Base.encode16(case: :lower)
   end
 
-  defp encode(atom) when is_atom(atom), do: sized(?a, Atom.to_string(atom))
-  defp encode(binary) when is_binary(binary), do: sized(?b, binary)
-  defp encode(int) when is_integer(int), do: sized(?i, Integer.to_string(int))
-  defp encode(float) when is_float(float), do: [?f | <<float::float-64>>]
+  @doc """
+  The canonical encoding's version byte, which `digest/1` hashes ahead of `encode/1`'s
+  bytes: what a change to the encoding would move.
+  """
+  @spec encoding_version() :: 1
+  def encoding_version, do: @encoding
 
-  defp encode(bits) when is_bitstring(bits) do
+  @doc """
+  A term's canonical encoding (the table in `digest/1`), without the version byte: so a
+  type whose canonical term is large can hash its parts as it goes, with the version
+  byte first, and get `digest/1`'s digest without a second encoder.
+
+      iex> alias Macaw.Layers.Document
+      iex> value = %{b: 1, a: [true, nil]}
+      iex> :crypto.hash(:sha256, [Document.encoding_version() | Document.encode(value)])
+      ...> |> Base.encode16(case: :lower) == Document.digest(value)
+      true
+
+  Raises `ArgumentError` for a term that is not data, as `digest/1` does.
+  """
+  @spec encode(term()) :: iodata()
+  def encode(atom) when is_atom(atom), do: sized(?a, Atom.to_string(atom))
+  def encode(binary) when is_binary(binary), do: sized(?b, binary)
+  def encode(int) when is_integer(int), do: sized(?i, Integer.to_string(int))
+  def encode(float) when is_float(float), do: [?f | <<float::float-64>>]
+
+  def encode(bits) when is_bitstring(bits) do
     size = bit_size(bits)
     [?s, <<size::64>>, <<bits::bitstring, 0::size(8 - rem(size, 8))>>]
   end
 
-  defp encode(list) when is_list(list),
+  def encode(list) when is_list(list),
     do: [?l, <<length_of(list, list, 0)::64>> | elements(list)]
 
-  defp encode(tuple) when is_tuple(tuple),
+  def encode(tuple) when is_tuple(tuple),
     do: [?t, <<tuple_size(tuple)::64>> | tuple |> Tuple.to_list() |> elements()]
 
-  defp encode(map) when is_map(map) do
+  # A struct is its canonical term; one that answers itself (the fallback) is its map.
+  def encode(%_{} = struct) do
+    case Macaw.Layers.Digest.canonical(struct) do
+      ^struct -> map(struct)
+      canonical -> encode(canonical)
+    end
+  end
+
+  def encode(map) when is_map(map), do: map(map)
+
+  def encode(other), do: not_data(other)
+
+  defp map(map) do
     entries =
       map
       |> :maps.to_list()
@@ -131,8 +165,6 @@ defmodule Macaw.Layers.Document do
 
     [?m, <<map_size(map)::64>> | entries]
   end
-
-  defp encode(other), do: not_data(other)
 
   defp sized(tag, bytes), do: [tag, <<byte_size(bytes)::64>> | bytes]
 
