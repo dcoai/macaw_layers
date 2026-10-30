@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.3.1 (2026-10-30)
 
 - `Macaw.Layers.Digest`: a struct whose fields are a layout of its contents answers its canonical term, which the digest encodes in its place wherever it sits; every other struct is its map, as before, so no existing digest changes. `Document.encode/1` and `Document.encoding_version/0` expose the canonical encoding, so a type can hash a large canonical term in parts with no encoder of its own (#18, #22, spec/01 §7).
 - A bundle reads and writes each entry with its type's vocabulary: `Bundle.from_map/3`, `from_json/3`, `to_map/3` and `to_json/3` take `vocabularies: %{type => vocabulary}`, so an entry using an adopter's words reads back as it would alone; `Theme.Extension.words/1` is public, the vocabulary a host gives for themes (macaw#192, #21, spec/03 §3.2).
