@@ -131,6 +131,34 @@ defmodule Macaw.Layers.Theme.DocumentTest do
              }) == {:error, [{[:theme, :colors, "info"], {:duplicate, :name}}]}
     end
 
+    @tag verifies: ["stores-bundle-vocabulary", "themes-extension-words"]
+    test "a bundle reads a theme entry with its type's vocabulary, as the theme reads alone" do
+      defaults = %{line: %{curve: %{type: :step}}}
+      theme = Theme.merge(@house, defaults: defaults, extensions: [Steps])
+      store = {Memory, start_supervised!({Memory, types: [Document]}, id: :worded)}
+      {:ok, id} = Store.put(store, %{id: nil, name: "Steps", fragment: Document.fragment(theme)})
+      bundle = Bundle.export(store, id, "lib")
+      words = %{Document => Theme.Extension.words([Steps])}
+
+      assert {:ok, json} = Bundle.to_json(bundle, [Document], vocabularies: words)
+      assert Bundle.from_json(json, [Document], vocabularies: words) == {:ok, bundle}
+      assert {:ok, map} = Bundle.to_map(bundle, [Document], vocabularies: words)
+      assert Bundle.from_map(map, [Document], vocabularies: words) == {:ok, bundle}
+
+      # Without its words the entry is refused as the theme alone is, under its entry.
+      assert {:error, [{path, fault}]} = Document.from_json(elem(Document.to_json(theme), 1))
+
+      assert Bundle.from_json(json, [Document]) ==
+               {:error, [{[:entries, 0, :fragment | path], fault}]}
+
+      assert fault == {:unknown_atom, "step"}
+
+      # A vocabulary for a type the store does not have is a mistake in the caller's code.
+      assert_raise ArgumentError, ~r/vocabularies:/, fn ->
+        Bundle.from_json(json, [Document], vocabularies: %{Theme => %{}})
+      end
+    end
+
     @tag verifies: "themes-document-forms"
     test "a theme entry of a store round-trips through a bundle's forms and relocates" do
       store = {Memory, start_supervised!({Memory, types: [Document]}, id: :themes)}

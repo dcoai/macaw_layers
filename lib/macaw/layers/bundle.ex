@@ -118,14 +118,20 @@ defmodule Macaw.Layers.Bundle do
   @doc """
   The bundle's map form (§3.2), each entry's fragment in its type's map form, stamped with
   the type's version where the type has a line: `{:ok, map}`, or every value without a
-  form, by path.
+  form, by path. `vocabularies:` as `from_map/3` takes them.
   """
-  @spec to_map(t(), [module()]) :: {:ok, map()} | {:error, [Fault.t(), ...]}
-  def to_map(%__MODULE__{provenance: provenance, entries: entries, snapshot: snapshot}, types) do
+  @spec to_map(t(), [module()], keyword()) :: {:ok, map()} | {:error, [Fault.t(), ...]}
+  def to_map(
+        %__MODULE__{provenance: provenance, entries: entries, snapshot: snapshot},
+        types,
+        opts \\ []
+      ) do
+    words = vocabularies(opts, types)
+
     {written, faults} =
       entries
       |> Enum.with_index()
-      |> Enum.map(fn {entry, i} -> write_entry(entry, i, types) end)
+      |> Enum.map(fn {entry, i} -> write_entry(entry, i, types, words) end)
       |> Enum.unzip()
 
     {store, store_faults} = write_store(provenance.store)
@@ -147,11 +153,30 @@ defmodule Macaw.Layers.Bundle do
     end
   end
 
-  @doc "The bundle's JSON form."
-  @spec to_json(t(), [module()]) :: {:ok, String.t()} | {:error, [Fault.t(), ...]}
-  def to_json(bundle, types) do
-    with {:ok, map} <- to_map(bundle, types), do: {:ok, JSON.encode!(map)}
+  @doc "The bundle's JSON form. `vocabularies:` as `from_map/3` takes them."
+  @spec to_json(t(), [module()], keyword()) :: {:ok, String.t()} | {:error, [Fault.t(), ...]}
+  def to_json(bundle, types, opts \\ []) do
+    with {:ok, map} <- to_map(bundle, types, opts), do: {:ok, JSON.encode!(map)}
   end
+
+  # Each type's vocabulary (`Macaw.Layers.Form.read/3`'s `vocabulary:`), by type: a type
+  # the store does not have is a mistake in the caller's code, so it raises.
+  defp vocabularies(opts, types) do
+    words = Keyword.get(opts, :vocabularies, %{})
+
+    if not (is_map(words) and not is_struct(words) and
+              Enum.all?(Map.keys(words), &(&1 in types))),
+       do:
+         raise(
+           ArgumentError,
+           "vocabularies: is a map from types of #{inspect(types)} to vocabularies, " <>
+             "got #{inspect(words)}"
+         )
+
+    words
+  end
+
+  defp vocabulary(words, type), do: [vocabulary: Map.get(words, type, %{})]
 
   defp write_store(store) when is_binary(store), do: {store, []}
 
@@ -160,13 +185,13 @@ defmodule Macaw.Layers.Bundle do
 
   defp write_store(store), do: {store, [{[:provenance, :store], {:type, :string}}]}
 
-  defp write_entry(%{id: {kind, _n} = id, name: name, fragment: fragment}, i, types) do
+  defp write_entry(%{id: {kind, _n} = id, name: name, fragment: fragment}, i, types, words) do
     case Store.type_of(types, kind) do
       nil ->
         {%{}, [{[:entries, i, :id], {:type, :id}}]}
 
       type ->
-        case Form.to_map(fragment, type) do
+        case Form.to_map(fragment, type, vocabulary(words, type)) do
           {:ok, form} ->
             {%{"id" => Store.encode_id(id), "name" => name, "fragment" => stamp(form, type)}, []}
 
@@ -192,6 +217,9 @@ defmodule Macaw.Layers.Bundle do
   by the type its id names, at the type's own version, and then the bundle judged as a term
   (`check/2`): `{:ok, bundle}`, or the faults of the first step that refuses it, by path.
   `types` are a store's; `limits:` as `Macaw.Layers.Form.gates/3` takes them.
+  `vocabularies: %{type => vocabulary}` gives each type the words its entries are read
+  with, as `Macaw.Layers.Form.read/3`'s `vocabulary:` (an adopter's registered words), so
+  an entry reads as a document of its type would standalone; a type not in `types` raises.
   """
   @spec from_map(term(), [module()], keyword()) :: {:ok, t()} | {:error, [Fault.t(), ...]}
   def from_map(map, types, opts \\ [])
@@ -206,9 +234,11 @@ defmodule Macaw.Layers.Bundle do
   def from_json(json, types, opts \\ []) when is_binary(json), do: read(json, types, opts)
 
   defp read(input, types, opts) do
-    with {:ok, form} <- Form.gates(input, __MODULE__, opts),
+    words = vocabularies(opts, types)
+
+    with {:ok, form} <- Form.gates(input, __MODULE__, Keyword.take(opts, [:limits])),
          :ok <- faults(envelope(form)),
-         {:ok, bundle} <- decode(form, types) do
+         {:ok, bundle} <- decode(form, types, words) do
       check(bundle, types)
     end
   end
@@ -287,13 +317,13 @@ defmodule Macaw.Layers.Bundle do
 
   # The bundle a sound envelope holds: each id read against the types' kinds, so no atom is
   # made from a document's kind, and each fragment read by its type.
-  defp decode(form, types) do
+  defp decode(form, types, words) do
     kinds = Store.kinds(types)
 
     {entries, faults} =
       form["entries"]
       |> Enum.with_index()
-      |> Enum.map(fn {entry, i} -> read_entry(entry, i, types, kinds) end)
+      |> Enum.map(fn {entry, i} -> read_entry(entry, i, types, kinds, words) end)
       |> Enum.unzip()
 
     with :ok <- faults(Enum.concat(faults)) do
@@ -313,13 +343,15 @@ defmodule Macaw.Layers.Bundle do
     end
   end
 
-  defp read_entry(%{"id" => spelled, "name" => name, "fragment" => form}, i, types, kinds) do
+  defp read_entry(%{"id" => spelled, "name" => name, "fragment" => form}, i, types, kinds, words) do
     case Store.decode_id(kinds, spelled) do
       :error ->
         {%{id: nil, name: name, fragment: form}, [{[:entries, i, :id], {:type, :id}}]}
 
       {:ok, {kind, _n} = id} ->
-        case read_fragment(form, Store.type_of(types, kind)) do
+        type = Store.type_of(types, kind)
+
+        case read_fragment(form, type, vocabulary(words, type)) do
           {:ok, fragment} ->
             {%{id: id, name: name, fragment: fragment}, []}
 
@@ -332,11 +364,11 @@ defmodule Macaw.Layers.Bundle do
 
   # A fragment that is not a map is no form of its type; it is kept as it is, for the
   # term's check to refuse.
-  defp read_fragment(form, type) when is_map(form) do
-    with {:ok, form} <- migrate(form, type), do: Form.from_map(form, type)
+  defp read_fragment(form, type, opts) when is_map(form) do
+    with {:ok, form} <- migrate(form, type), do: Form.from_map(form, type, opts)
   end
 
-  defp read_fragment(other, _type), do: {:ok, other}
+  defp read_fragment(other, _type, _opts), do: {:ok, other}
 
   # A fragment carries its type's stamp where the type has a version line, and migrates as
   # a document of the type does; the stamp is the line's, not data.

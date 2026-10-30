@@ -179,9 +179,13 @@ defmodule Macaw.Layers.Theme.Extension do
   @spec colors([module()]) :: %{String.t() => term()}
   def colors(extensions), do: Enum.reduce(extensions, %{}, &Map.merge(&2, names(&1, :colors)))
 
-  @doc false
-  # The words the extensions' styles and defaults use, for the JSON reader's vocabulary
-  # (`Macaw.Layers.Form.read/3`'s `vocabulary:`).
+  @doc """
+  The words the extensions' styles and defaults use, as the JSON reader's vocabulary
+  (`Macaw.Layers.Form.read/3`'s `vocabulary:`): what a host gives a bundle holding
+  themes, `Macaw.Layers.Bundle.from_json(json, types, vocabularies: %{Theme.Document =>
+  words(extensions)})`, as `Macaw.Layers.Theme.Document.from_json/2` does from
+  `extensions:`.
+  """
   @spec words([module()]) :: %{keys: [atom()], atoms: [atom()]}
   def words(extensions) do
     Enum.reduce(extensions, %{keys: [], atoms: []}, fn ext, acc ->
