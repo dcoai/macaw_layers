@@ -21,8 +21,9 @@ defmodule Macaw.Layers.Color.Form do
   payload `encode_value/1` writes of a literal color gives that color again. Its payload is
   `#` and six or eight hex digits, or four numbers in their ranges; any other is no color.
   A struct that is not a literal color has no form. A name is read as its string, as every
-  name of a theme is (spec/04 §2.1), and written from either spelling; a ramp of a name
-  that is none of `Macaw.Layers.Theme.ramp_names/0` is no color. A string is
+  name of a theme is (spec/04 §2.1), and written from either spelling; a name is read when
+  `Macaw.Layers.Color.name?/1` holds of it, a ramp's as a color's, so a theme's own ramp
+  round-trips and a theme that lacks it refuses it where it resolves. A string is
   never a color: an operand or a step is a color's own form, and a bare string in its place
   is no color. No atom is made from a document.
 
@@ -34,12 +35,11 @@ defmodule Macaw.Layers.Color.Form do
   The tags of visualize's `Visualize.Chart.Codec`, with `$rgb`.
   """
 
-  alias Macaw.Layers.{Color, Theme}
+  alias Macaw.Layers.Color
 
   @ops [:intensity, :alpha, :lighten, :darken, :saturate, :shade]
   @op_tags Map.new(@ops, &{"$#{&1}", &1})
   @tags ~w($rgb $color $series $ramp $blend $contrast $steps) ++ Map.keys(@op_tags)
-  @ramps Theme.ramp_names()
   @hex ~r/\A#(?:[0-9a-f]{6}|[0-9a-f]{8})\z/i
 
   @doc "The colors' tags, for a type's tag table."
@@ -133,14 +133,15 @@ defmodule Macaw.Layers.Color.Form do
       else: :default
   end
 
-  def decode_value("$color", name) when is_binary(name) and name != "",
-    do: {:ok, {:color, name}}
+  def decode_value("$color", name) when is_binary(name) do
+    if Color.name?(name), do: {:ok, {:color, name}}, else: :default
+  end
 
   def decode_value("$series", i) when is_integer(i) and i > 0, do: {:ok, {:series, i}}
 
   def decode_value("$ramp", [name, t])
       when is_binary(name) and is_number(t) and t >= 0 and t <= 1 do
-    if name in @ramps, do: {:ok, {:ramp, name, t}}, else: :default
+    if Color.name?(name), do: {:ok, {:ramp, name, t}}, else: :default
   end
 
   def decode_value("$blend", [_ | _] = list) do

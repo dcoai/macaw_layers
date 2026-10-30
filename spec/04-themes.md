@@ -201,7 +201,7 @@ A literal color is a term (§1.1); its encodings are made and read at the edges,
 | 8-bit exact | `{"$rgb": "#3b6fa8"}`, eight digits when `opacity < 1` |
 | any other | `{"$rgb": [r, g, b, a]}`, its four fields |
 
-Reading `$rgb` builds the canonical literal, so `decode_value("$rgb", p)` of the payload `p` that `encode_value(c)` writes is `c` for every literal `c`. A payload other than `#` and six or eight hex digits, or four numbers in their ranges, is no color, and a struct that is not a literal has no form. The color values' tags are §5's: a name in `$color` and `$ramp` is written from either spelling and read as its string (§2.1), never an atom, and a `$ramp` of a name that is none of `ramp_names/0` is no color. A theme document's tag table lists `$rgb` (§5).
+Reading `$rgb` builds the canonical literal, so `decode_value("$rgb", p)` of the payload `p` that `encode_value(c)` writes is `c` for every literal `c`. A payload other than `#` and six or eight hex digits, or four numbers in their ranges, is no color, and a struct that is not a literal has no form. The color values' tags are §5's: a name in `$color` and `$ramp` is written from either spelling and read as its string (§2.1), never an atom, when it is a name (`Color.name?/1`): a theme's own ramp is read like the four the library fixes, and a theme that lacks it refuses it where it resolves (§2.3). A payload whose name is not a name is no color. A theme document's tag table lists `$rgb` (§5).
 
 ```test:color-adapters-edges
 parse! of to_css is the color for every 8-bit-exact literal and for literals that are not; parse! raises naming the text; the sigil compiles a literal in and an unreadable text is a compile error; to_css writes hex where exact and rgb() otherwise

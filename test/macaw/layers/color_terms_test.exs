@@ -38,6 +38,56 @@ defmodule Macaw.Layers.ColorTermsTest do
 
   defp fields(%Color{r: r, g: g, b: b, opacity: a}), do: [r, g, b, a]
 
+  # A name, as a theme gives one: any, not only the library's.
+  defp name do
+    gen(
+      all(
+        first <- string(?a..?z, length: 1),
+        rest <- string(Enum.concat([?a..?z, ?0..?9, [?_]]), max_length: 8)
+      ),
+      do: first <> rest
+    )
+  end
+
+  defp unit, do: float(min: 0.0, max: 1.0)
+
+  # Any typed color `Color.value?/1` accepts, its names strings, operands nested.
+  defp typed do
+    leaf =
+      one_of([
+        exact(),
+        map(name(), &{:color, &1}),
+        map(positive_integer(), &{:series, &1}),
+        map({name(), unit()}, fn {n, t} -> {:ramp, n, t} end),
+        constant({:contrast, :under})
+      ])
+
+    tree(leaf, fn inner ->
+      one_of([
+        map({member_of([:intensity, :alpha, :lighten, :darken, :saturate]), inner, unit()}, fn
+          {op, c, t} -> {op, c, t}
+        end),
+        map({inner, float(min: 0.0, max: 1000.0)}, fn {c, n} -> {:shade, c, n} end),
+        map(list_of(inner, min_length: 1, max_length: 3), &{:blend, &1}),
+        map(inner, &{:contrast, &1})
+      ])
+    end)
+  end
+
+  # The kernel's read of a color's map form: each tag's payload read first, then the tag.
+  defp read(%{} = form) when map_size(form) == 1 do
+    [{tag, payload}] = Map.to_list(form)
+    ColorForm.decode_value(tag, read_payload(payload))
+  end
+
+  defp read_payload(%{} = form) when map_size(form) == 1 do
+    {:ok, value} = read(form)
+    value
+  end
+
+  defp read_payload(list) when is_list(list), do: Enum.map(list, &read_payload/1)
+  defp read_payload(leaf), do: leaf
+
   describe "the literal color (spec/04 §1.1)" do
     @tag verifies: "color-literal-canonical"
     property "every constructor builds the canonical struct" do
@@ -223,6 +273,37 @@ defmodule Macaw.Layers.ColorTermsTest do
         assert ColorForm.decode_value("$rgb", payload |> JSON.encode!() |> JSON.decode!()) ==
                  {:ok, color}
       end
+    end
+
+    @tag verifies: "color-adapters-json"
+    property "every typed color, whatever names it holds, reads back from its map form" do
+      check all(value <- typed()) do
+        assert Color.value?(value)
+        assert {:ok, form} = ColorForm.encode_value(value)
+        assert read(form) == {:ok, value}
+        assert read(form |> JSON.encode!() |> JSON.decode!()) == {:ok, value}
+      end
+    end
+
+    @tag verifies: "color-adapters-json"
+    test "a theme's own ramp round-trips, and a name that is no name is no color" do
+      assert ColorForm.decode_value("$ramp", ["custom", 0.5]) == {:ok, {:ramp, "custom", 0.5}}
+      assert ColorForm.decode_value("$ramp", ["Custom", 0.5]) == :default
+      assert ColorForm.decode_value("$ramp", ["a-b", 0.5]) == :default
+      assert ColorForm.decode_value("$color", "brand_2") == {:ok, {:color, "brand_2"}}
+      assert ColorForm.decode_value("$color", "Brand") == :default
+      assert ColorForm.decode_value("$color", "") == :default
+
+      # A theme document holding its own ramp, and a color on it, reads back.
+      custom = [Color.parse!("#000000"), Color.parse!("#ffffff")]
+
+      value = %{
+        theme: %{ramps: %{"custom" => custom}, colors: %{"edge" => {:ramp, "custom", 0.5}}}
+      }
+
+      assert {:ok, json} = Form.to_json(value, ThemeDocument)
+      assert json =~ ~s("$ramp":["custom",0.5])
+      assert Form.read(json, ThemeDocument) == {:ok, value}
     end
 
     @tag verifies: "color-adapters-json"

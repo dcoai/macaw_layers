@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `Color.Form` reads any name `Color.name?/1` accepts in `$color` and `$ramp`, so a typed color naming a theme's own ramp round-trips through JSON; a payload whose name is not a name (`"Brand"`, `"a-b"`, `""`) is no color, where `$color` used to read any string (#17, #19, spec/04 §1.6).
+
 ## v0.3.0 (2026-10-29)
 
 **Terms are the form** (dco-tek/macaw/macaw#188). A value's identity and validity are the BEAM term's own; JSON, and every other encoding, is an adapter at the edge. This release is breaking throughout; the guide below is what an adopter of 0.2.4 changes, and the entries after it are the detail.
