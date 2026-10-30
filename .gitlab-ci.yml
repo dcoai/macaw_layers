@@ -53,6 +53,7 @@ spec-links:
   image: $ELIXIR_IMAGE
   stage: check
   script:
+    - elixir ci/spec_links.exs --self-test
     - elixir ci/spec_links.exs
 
 # No bare function_exported?/3 in lib/ (ci/callbacks.exs, spec/01 §9): it skips an
